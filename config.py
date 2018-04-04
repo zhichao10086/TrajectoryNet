@@ -1,5 +1,7 @@
 import json
 from tensorflow.python.ops.math_ops import tanh
+from enum import Enum
+
 
 class Config(object):
     def __init__(self,configFile="data/config.json"):
@@ -49,6 +51,8 @@ class Config(object):
         self.num_features = dconf["num_features"]
         #嵌入后的向量维度
         self.embeded_dims = dconf["embeded_dims"]
+        #L2正则化超参数
+        self.l2_preparam = dconf["l2_preparam"]
 
 
 
@@ -65,3 +69,12 @@ class TrainingConfig(object):
         self.val_seq_len = []
         self.test_seq_len = []
         self.activation = tanh
+
+
+class Mode(Enum):
+    Gru = 0
+    Gru_b = 1
+    Lstm = 2
+    Lstm_b = 3
+    Dnn = 4
+    Cnn = 5

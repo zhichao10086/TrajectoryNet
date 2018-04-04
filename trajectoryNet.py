@@ -4,14 +4,17 @@ import Data
 import config
 from model import Model
 from tensorflow.python.ops.math_ops import tanh
-import log
+from log import Log
+from myThread import MyThread
+import random
+from tensorflow.contrib import layers
 
 
 conf = config.Config("data/config.json")
-log_path = "./log/"
+log_path = "./logdir/"
 data_path = "./data/"
 task = conf.task
-Log = log.Log(log_path,"training_data.csv")
+LOGGER = Log(log_path)
 
 
 def loadData():
@@ -44,9 +47,13 @@ def loadData():
     #分类个数
     num_classes = conf.num_classes
 
+    #test_and_val = random.sample(range(23),6)
+
     #测试集
+    #test_vessel = test_and_val[0:5]
     test_vessel = conf.test_id
     #验证集
+    #val_vessel = test_and_val[5:6]
     val_vessel = conf.val_id
 
     #分割数据，将数据分割成 训练集，测试集，验证集，返回这些数据集的索引
@@ -66,9 +73,13 @@ def loadData():
     y_train = y[train_index, :]
     stop_train = early_stop[train_index]
 
+    np.random.shuffle(test_index)
+
     X_test = x[:, test_index, :]
     y_test = y[test_index, :]
     stop_test = early_stop[test_index]
+
+    np.random.shuffle(valid_index)
 
     X_valid = x[:, valid_index, :]
     y_valid = y[valid_index, :]
@@ -77,7 +88,6 @@ def loadData():
     train_data = (X_train, y_train, stop_train)
     test_data = (X_test, y_test, stop_test)
     val_data = (X_valid, y_valid, stop_valid)
-
 
 
     #获得训练集，测试集，验证集的序列长度数组
@@ -92,17 +102,47 @@ def loadData():
     train_config.len_features = x.shape[2]
 
 
-    test_config = config.TrainingConfig(False,False,True,conf.batch_size)
+    test_config = config.TrainingConfig(False,False,True,len(test_index))
     test_config.activation = tanh
     test_config.test_seq_len = test_seq_len
     test_config.len_features = x.shape[2]
 
-    valid_config = config.TrainingConfig(False, True, False, conf.batch_size)
+    valid_config = config.TrainingConfig(False, True, False, len(valid_index))
     valid_config.activation = tanh
     valid_config.val_seq_len = valid_seq_len
     valid_config.len_features = x.shape[2]
 
     return (train_data,test_data,val_data,train_config,test_config,valid_config)
+
+
+def evaluate_model(sess, minibatch):
+    # test and validate model
+    #if conf.test_mode:
+    #    run_batch(sess, mtest, test_data, tf.no_op(), minibatch)
+
+    t_train = MyThread(run_batch, (sess, train_model, train_data, tf.no_op(), minibatch))
+    t_test = MyThread(run_batch, (sess, test_model, test_data, tf.no_op(), minibatch))
+    t_val = MyThread(run_batch, (sess, valid_model, val_data, tf.no_op(), minibatch))
+
+    t_train.start()
+    t_test.start()
+    t_val.start()
+
+    t_train.join()
+    result_train = t_train.get_result()
+    t_test.join()
+    result_test = t_test.get_result()
+    t_val.join()
+    result_val = t_val.get_result()
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_train[0], result_train[1]))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_val[0], result_val[1]))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_test[0], result_test[1]))
+
+    return result_train + result_test + result_val
 
 
 def run_batch(session, m, data, eval_op, minibatch):
@@ -130,6 +170,11 @@ def run_batch(session, m, data, eval_op, minibatch):
             _, cost, accuracy = session.run([eval_op,m.cost, m.accuracy],
                                                                feed_dict=temp_dict)
 
+            if minibatch % conf.evaluate_freq == 0:
+                result = evaluate_model(session, minibatch)  #评估模型，返回结果
+                LOGGER.summary_log(result, minibatch)
+            minibatch += 1
+
 
         else:
             cost, confusion, accuracy, _ = session.run([m.cost, m.confusion_matrix, m._accuracy, eval_op],
@@ -141,8 +186,9 @@ def run_batch(session, m, data, eval_op, minibatch):
 
             # print test confusion matrix
             if not m.is_training and not m.is_validation:
-                print('Confusion matrix on the test data:')
-                print(confusion)
+
+                LOGGER.training_log(str(minibatch) + "测试集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
                 # output predictions in test mode
                 # if conf.test_mode:
                 #     pred = session.run([m._prob_predictions], feed_dict=temp_dict)
@@ -150,9 +196,10 @@ def run_batch(session, m, data, eval_op, minibatch):
                 #     np.set_printoptions(threshold=np.nan)
                 #     # results = np.column_stack((tar, pred))
                 #     # np.savetxt("results/prediction.result", pred)#, fmt='%.3f')
-                #     print("output target and predictions to file prediction.csv")
-                #     exit()
+                #     #print("output target and predictions to file prediction.csv")
+                #     #exit()
 
+            #计算平均精度与损失
             if batch == epoch_size - 1:
                 accuracy = sum(correct) / float(sum(e_stop))
                 return (sum(costs) / float(epoch_size), accuracy)
@@ -168,35 +215,42 @@ def main():
     #3 训练模型
     #4 测试模型
 
+    global train_data
+    global test_data
+    global val_data
     #x shape = [序列长度，总的序列个数，特征长度]
     #y shape = [总的序列个数，1}
     #early_stop  shape = [总的序列个数]  [250,250,250,250,50,.........]
     #train_index  训练集的索引 [10,11,12,13,......]
     train_data, test_data, val_data, train_config, test_config, valid_config = loadData()
 
-
-
-
     minibatch = 0
 
     with tf.Session() as sess:
         tf.set_random_seed(0)
 
+        #变量初始化
         initializer = tf.random_uniform_initializer(0,0.001)
+        #正则化
+        regularizer = layers.l2_regularizer(conf.l2_preparam)
 
-        with tf.variable_scope("model",reuse=False,initializer=initializer):
+        with tf.variable_scope("model",reuse=False,initializer=initializer,dtype=tf.float32): #,regularizer = regularizer):
+            global train_model
             train_model = Model(conf,train_config)
-        # with tf.variable_scope("model",reuse=True,initializer=initializer):
-        #     test_model = Model(conf,test_config)
-        # with tf.variable_scope("model",reuse=True,initializer=initializer):
-        #     valid_model = Model(conf,test_config)
+        with tf.variable_scope("model",reuse=True,initializer=initializer,dtype=tf.float32): #,regularizer = regularizer):
+            global test_model
+            test_model = Model(conf,test_config)
+        with tf.variable_scope("model",reuse=True,initializer=initializer,dtype=tf.float32): #,regularizer = regularizer):
+            global valid_model
+            valid_model = Model(conf,valid_config)
 
+        saver  = None
         if conf.checkpoint or conf.restore:
             saver = tf.train.Saver()
 
         if conf.tensorboard:
             global writer
-            writer = tf.summary.FileWriter(log_path, sess.graph_def)
+            writer = tf.summary.FileWriter(log_path, sess.graph)
 
         if not conf.restore:
             tf.global_variables_initializer().run()  # initialize all variables in the model
@@ -205,12 +259,15 @@ def main():
             print("装载变量......")
 
         for i in range(conf.num_epochs):
-            run_batch(sess,train_model,train_data,train_model.train_op,minibatch)
+            print("第 {0}次epoch".format(i))
+            minibatch = run_batch(sess,train_model,train_data,train_model.train_op,minibatch)
+            if (i+1)%10 == 0:
+                saver.save(sess,data_path+task)
+
+        if conf.checkpoint:
+            save_path = saver.save(sess,data_path+task)
 
 
-
-
-    pass
 
 
 

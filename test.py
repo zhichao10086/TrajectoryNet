@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import random
 
 def get_match_index(mmsi, target):
     unique_mmsi = np.unique(mmsi)
@@ -26,5 +27,16 @@ np.random.shuffle(b)
 vvv = np.random.permutation(b)
 b = np.array([[[1,2,3],[2,3,4]],[[7,8,9],[3,4,5]]])
 c = np.reshape(b,[4,3])
-print(c)
-print(np.reshape(c,[2,2,3]))
+test_vessel = random.sample(range(23),6)
+t = None
+while (1):
+    t = np.random.randint(0, 23, 1)
+    if t not in test_vessel:
+        break
+l = range(1,4)
+list = [ [None] *5]*6
+v= np.random.randint(0,10,size=[6,5])
+v = v.astype(dtype=np.str)
+b = np.array(["123","rr"])
+
+print(type(b[0]))

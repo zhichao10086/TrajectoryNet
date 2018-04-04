@@ -1,23 +1,26 @@
 import config
 import tensorflow as tf
 from customized_gru import CustomizedGRU as GRUCell
-import log
+import tensorflow.contrib as tf_ct
+
+
 
 
 class Model(object):
 
     def __init__(self,conf,config):
         self.num_threads = conf.num_threads
-        self.hidden_size = conf.hidden_size
-        self.learning_rate = conf.learning_rate
-        self.num_layers = conf.num_layers
-        self.num_epochs = conf.num_epochs
-        self.exp_seq_len = conf.exp_seq_len
-        self.num_classes = conf.num_classes
-        self.num_features = conf.num_features
-        self.maxOut_numUnits = conf.maxOut_numUnits
-        self.embeded_dims = conf.embeded_dims
+        self.hidden_size = conf.hidden_size                         #隐藏层节点
+        self.learning_rate = conf.learning_rate                     #学习速率
+        self.num_layers = conf.num_layers                           #隐藏层数
+        self.num_epochs = conf.num_epochs                           #训练周期
+        self.exp_seq_len = conf.exp_seq_len                         #序列长度
+        self.num_classes = conf.num_classes                         #分类个数
+        self.num_features = conf.num_features                       #特征数量
+        self.maxOut_numUnits = conf.maxOut_numUnits                 #maxout节点
+        self.embeded_dims = conf.embeded_dims                       #嵌入维数
         self.bias_initializer = tf.random_uniform_initializer(0, 0.001)
+        self.l2_preparam = conf.l2_preparam
 
 
         #将一些要创建时的数据通过config类传进来 包括模式，数据长度等等
@@ -25,13 +28,13 @@ class Model(object):
         self.is_test = config.is_test               #是否为测试模式
         self.is_validation = config.is_validation   #是否为验证模式
         self.len_features = config.len_features     #特征长度
-        self.train_seq_len = config.train_seq_len
+        self.train_seq_len = config.train_seq_len   #训练集序列长度列表
         self.valid_seq_len = config.val_seq_len
         self.test_seq_len = config.test_seq_len
-        self.activation = config.activation
-        self.batch_size = config.batch_size
+        self.activation = config.activation         #激励函数
+        self.batch_size = config.batch_size         #batch尺寸
 
-        self.current_step = tf.Variable(0)
+        #self.current_step = tf.Variable(0)
 
         #输入数据
         self._input_data = tf.placeholder(tf.float32,[self.exp_seq_len,self.batch_size,self.len_features],name="input_data")
@@ -41,9 +44,9 @@ class Model(object):
         if self.is_training:
             self.seq_len = self.exp_seq_len * self.batch_size
         elif self.is_validation:
-            self.seq_len = self.valid_seq_len
+            self.seq_len = sum(self.valid_seq_len)
         else:
-            self.seq_len = self.test_seq_len
+            self.seq_len = sum(self.test_seq_len)
 
         #获得多层双向gru的cell
         with tf.name_scope("mutil_gru_cell") :
@@ -52,8 +55,8 @@ class Model(object):
         #用于提前结束每个batch
         self._early_stop = tf.placeholder(tf.int64, shape=[self.batch_size], name="early-stop")
 
-        with tf.name_scope("embeded"):
-            self.get_embeded_vec()
+        #with tf.name_scope("embeded"):
+         #   self.get_embeded_vec()
 
         #初始化cell
         self.set_initial_states(cell)
@@ -95,11 +98,19 @@ class Model(object):
                 [self.valid_target],
                 [tf.ones([int(self.getTensorShape(self.valid_target)[0])])])
             self._cost = tf.reduce_mean(self.loss)
+            #计算l2cost
+            tv = tf.trainable_variables()
+            #tf_ct.layers.l2_regularizer()
+
+            self._regularization_cost = self.l2_preparam*tf.reduce_sum([tf.nn.l2_loss(v) for v in tv])
+            #总cost为 基础cost + l2cost
+            #self._regularization_cost = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
+            self._cost = self._cost+self._regularization_cost
+
             self._accuracy = tf.contrib.metrics.accuracy(self.digit_predictions, self.valid_target)
 
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,
-                                                                                 global_step=self.current_step)
+            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost)
 
 
         if conf.tensorboard:
@@ -111,6 +122,14 @@ class Model(object):
             self.mse_summary_test = tf.summary.scalar("test-cross-entropy-cost", self._cost)
 
 
+    def init_rnn_mode(self):
+        pass
+
+    def init_dnn_mode(self):
+        pass
+
+    def init_cnn_mode(self):
+        pass
 
     def get_embeded_vec(self):
 
@@ -145,7 +164,7 @@ class Model(object):
     def get_outputs(self,cell):
 
         (cell_fw, cell_bw) = cell
-        self.outputs, self.state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, self.embeded_result,
+        self.outputs, self.state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, self._input_data,
                                                                    sequence_length=self._early_stop,
                                                                    initial_state_fw=self.initial_state_fw,
                                                                    initial_state_bw=self.initial_state_bw,
