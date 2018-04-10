@@ -323,12 +323,327 @@ class Data:
             user_data_file.close()
 
 
+    @staticmethod
+    def caculate_feature_max_min():
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        feature_num = 10
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+        for user in user_list:
+            user_id = user[0:3]
+            user_feature_name = datadir + user_id + "/user_features.csv"
+            user_feature_file = open(user_feature_name,"r")
+            user_feature_df = pd.DataFrame(pd.read_csv(user_feature_file))
+
+            user_feature_max_min_name = datadir + user_id +"/user_features_max_min.csv"
+            label_group = user_feature_df.groupby(by="label")
+
+            #result = np.zeros(shape=[10,len(label_group)+1])
+            result_df = pd.DataFrame(columns=["speed_sec","acc_sec","std_speed","avg_speed","mean_acc","max_or_min","label"])
+
+            print(user_id)
+
+            for name,group in label_group:
+                #print(type(group))
+                #series_max = group.iloc[:,[3,4,5,6,7]].idxmax()
+                #series_min = group.iloc[:,[3,4,5,6,7]].idxmin()
+                max = group.iloc[:,[3,4,5,6,7,-2]].max()
+                min = group.iloc[:,[3,4,5,6,7,-2]].min()
+                max["max_or_min"] = "max"
+                min["max_or_min"] = "min"
+                #max_list = max.tolist()
+                #max_list.append("max")
+                df_max = pd.DataFrame(max)
+                df_max = df_max.T
+                df_min = pd.DataFrame(min)
+                df_min = df_min.T
+                result_df = result_df.append(df_max)
+                result_df = result_df.append(df_min)
+                # df.append(pd.DataFrame(max))
+                #dict = max.to_dict()
+                #max.to_csv(user_feature_max_name,mode= "a+",index =True)
+                #min.to_csv(user_feature_min_name,mode = "a+",index = True)
+                # print(name)
+                # print(group.describe())
+                # print(group.iloc[:,[3,4,5,6,7]].quantile(0.95))
+                # #print(group.loc[237777,"speed_sec"])
+                # #print(series_max[[0,1]])
+                # #print(type(list(series_max.index)))
+                # #print(group.iloc[series_max,series_max.index])
+                # max_list = []
+                # min_list = []
+                # for i in range(len(series_max)):
+                #     #print(series_max[i])
+                #     #print(series_max.index[i])
+                #     #print(series_max.iloc[i])
+                #     max_list.append(group.loc[series_max.iloc[i],series_max.index[i]])
+                #     min_list.append(group.loc[series_min.iloc[i],series_min.index[i]])
+                #
+                # print(max_list,min_list)
+
+            #print(result_df)
+            result_df.to_csv(user_feature_max_min_name,index=False)
+            user_feature_file.close()
+
+        valiable_user_data.close()
+
+    @staticmethod
+    def caculate_all_max_min():
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        feature_num = 10
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+        col_name = ["speed_sec", "acc_sec", "std_speed", "avg_speed", "mean_acc", "max_or_min", "label"]
+        df = pd.DataFrame()
+        #status = open(datadir+"status.csv","w+")
+
+
+        for user in user_list:
+            user_id = user[0:3]
+            # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
+            # user_features_max_min_file = open(user_features_max_min_name,"r")
+            # # 原始数据
+            # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
+            # max_min_df = max_min_df.append(raw_data_df)
+            #
+            # user_features_max_min_file.close()
+            user_feature_file_name = datadir + user_id +"/user_features.csv"
+            user_feature_file = open(user_feature_file_name,"r")
+            raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
+            df = df.append(raw_data_df)
+
+        df_label_groups = df.groupby("label")
+
+
+        result_df = pd.DataFrame()
+        for name,group in df_label_groups:
+            df_gp_desc = group.iloc[:,[3,4,5,6,7]].describe()
+            baifenwei_95 = group.iloc[:,[3,4,5,6,7]].quantile(0.95)
+            baifenwei_96 = group.iloc[:,[3,4,5,6,7]].quantile(0.96)
+            baifenwei_97 = group.iloc[:, [3, 4, 5, 6, 7]].quantile(0.97)
+            baifenwei_98 = group.iloc[:, [3, 4, 5, 6, 7]].quantile(0.98)
+            baifenwei_99 = group.iloc[:, [3, 4, 5, 6, 7]].quantile(0.99)
+            #result_df = result_df.append(df_gp_desc)
+            #print(name,"\n",baifenwei_95,baifenwei_96,baifenwei_97,baifenwei_98,baifenwei_99)
+            file_name_99 = datadir + "baifenwei_99"  + ".csv"
+            file_name_98 = datadir + "baifenwei_98" + ".csv"
+            file_name_97 = datadir + "baifenwei_97" + ".csv"
+            file_name_96 = datadir + "baifenwei_96" + ".csv"
+            file_name_95 = datadir + "baifenwei_95" + ".csv"
+            baifenwei_99.to_csv(file_name_99,mode = "a+")
+            baifenwei_98.to_csv(file_name_98,mode = "a+")
+            baifenwei_97.to_csv(file_name_97,mode = "a+")
+            baifenwei_96.to_csv(file_name_96,mode = "a+")
+            baifenwei_95.to_csv(file_name_95,mode = "a+")
+            file_name = datadir+"status_label_" +str(name) + ".csv"
+            df_gp_desc.to_csv(file_name,index=True,mode = "w+")
+
+
+        #print(result_df)
+        #result_df.to_csv(datadir+"status.csv",mode="w+")
+        # max_min_groups = max_min_df.groupby(by = "max_or_min")
+        #
+        # max_group = max_min_groups.get_group(name="max")
+        # min_group = max_min_groups.get_group(name="min")
+        #
+        # label_max_groups = max_group.groupby(by="label")
+        # label_min_groups = min_group.groupby(by= "label")
+        #
+        # for name,group in label_max_groups:
+        #     df_desc = group.describe()
+        #     baifenwei_75 = df_desc.loc["75%"]
+        #     baifenwei_25 = df_desc.loc["25%"]
+        #     delta_Q = baifenwei_75 - baifenwei_25
+        #     max = baifenwei_75 + delta_Q*1.5
+        #     print(max)
+        #for name,group in label_min_groups:
+        #    print(name,group.describe())
+
+
+        valiable_user_data.close()
+
+    @staticmethod
+    def discretization():
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        feature_num = 10
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+        col_name = ["speed_sec", "acc_sec", "std_speed", "avg_speed", "mean_acc", "max_or_min", "label"]
+        #所有数据
+        users_df = pd.DataFrame()
+        # status = open(datadir+"status.csv","w+")
+        width = 20
+        for user in user_list:
+            user_id = user[0:3]
+            # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
+            # user_features_max_min_file = open(user_features_max_min_name,"r")
+            # # 原始数据
+            # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
+            # max_min_df = max_min_df.append(raw_data_df)
+            #
+            # user_features_max_min_file.close()
+            user_feature_file_name = datadir + user_id +"/user_features.csv"
+            user_feature_file = open(user_feature_file_name,"r")
+            raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
+            users_df = users_df.append(raw_data_df)
+
+        users_df.reset_index(drop=True)
+
+        speed_sec = Data.equal_width(users_df["speed_sec"],width)
+        acc_sec = Data.equal_width(users_df["acc_sec"],width)
+        avg_speed = Data.equal_width(users_df["avg_speed"],width)
+        std_speed = Data.equal_width(users_df["std_speed"],width)
+        mean_acc = Data.equal_width(users_df["mean_acc"],width)
+
+        features_en = np.concatenate((speed_sec,avg_speed,std_speed,acc_sec,mean_acc),axis=1)
+
+        result_df = pd.DataFrame(features_en)
+        result_df["label"] = users_df["label"].values
+        result_df["seg_label"] = users_df["seg_label"].values
+        #col_name = result_df.columns.tolist()
+        #col_name.insert(col_name.index(0),"user_id")
+        #result_df.reindex(columns=col_name)
+        result_df["user_id"] = users_df["user_id"].values
+        #result_df    columns =[userid(1),speed_sec(width),avg_speed(width),std_speed(width),acc_sec(width),mean_acc(width),label(1),seg_label(1)]
+
+        #result_file = open(datadir+"user_features_data_en.csv",mode="w+")
+        result_df.to_csv(datadir+"user_features_data_en.csv",mode="w+",header=False,index=False)
+
+        valiable_user_data.close()
+
+    @staticmethod
+    def filter_box_quantile(x,k):
+        min = x.quantile(0.02)
+        max = x.quantile(0.95)
+        n = len(x.index)
+        y = np.array(x.values)
+
+        for i in range(k+1,n-k):
+
+            if y[i] >min and y[i] <max:
+                continue
+            y[i] = np.median(y[i-k:i+k])
+
+            if y[i] > max:
+                y[i] = max
+            if y[i] < min:
+                y[i] = min
+        series_y = pd.Series(data=y)
+
+        return series_y
+
+
+    @staticmethod
+    def equal_width(x,width):
+        x = Data.filter_box_quantile(x,10)
+
+        min = x.min()
+        max = x.max()
+        interval = (max - min + 0.001)/width
+        x_arr = np.array(x.values)
+        x_arr = (x_arr - min) / interval
+        x_arr = np.floor(x_arr).astype(np.int64)
+        x_result = np.zeros(shape=[len(x_arr),width],dtype=np.int32)
+        for i in  range(len(x_arr)):
+            x_result[i][x_arr[i]] = 1
+
+        return x_result
+
+    @staticmethod
+    def create_npy():
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        self_data_dir = "./data/"
+        user_data_file_name = datadir + "user_features_data_en.csv"
+        user_data_file = open(user_data_file_name, "r")
+        user_data_df = pd.DataFrame(pd.read_csv(user_data_file))
+        classes = 4
+        #0-99 特征one-hot编码后数据 100 label 101 seg_label 102 user_id
+        user_data_label_groups = user_data_df.groupby(by="label")
+
+        for name,group in user_data_label_groups:
+            #if int(name) < 7:
+            #    continue
+            print("处理label  ",name)
+            mode_file_name = self_data_dir + "transportation_mode" + str(name) +".npy"
+            features_arr = np.array(group.iloc[:,0:100])
+            seg_label_arr = np.array(group.iloc[:,-2])
+            seg_label_unique,seg_label_index,seg_label_count = np.unique(seg_label_arr,return_index=True,return_counts=True)
+            index_file_name = self_data_dir + "transportation_mode" + str(name) +"_seg_index.csv"
+            index_df = pd.DataFrame()
+            index_df["seg_label_unique"] = seg_label_unique
+            index_df["seg_label_index"] = seg_label_index.astype(np.int32)
+            index_df["seg_label_count"] = seg_label_count.astype(np.int32)
+            index_df = index_df.sort_values(by="seg_label_index")
+
+            index_df.to_csv(index_file_name,mode="w+",index=False)
+            del index_df
+            del seg_label_arr
+            np.save(mode_file_name,features_arr)
+            del features_arr
 
 
 
+        user_data_file.close()
 
+        #user_data_df_classes_4 = user_data_df[user_data_df["label"]<4]
+        #data_classes_4_groups = user_data_df_classes_4.groupby(by="label")
+        #for name,group in data_classes_4_groups:
+
+    @staticmethod
+    def slice_seq(x,y,index,exp_seq_len):
+        #index 第一维是索引，第二维是长度
+
+        #特征长度
+        features_len = x.shape[1]
+        #每一段可以切出的序列个数
+        seq_num_list = np.array([math.ceil(i) for i in index[1] / exp_seq_len])
+        #总序列个数
+        num_total_seq = int(sum(seq_num_list))
+        #结果矩阵
+        new_data = np.zeros(shape=[num_total_seq,exp_seq_len,features_len])
+        new_label = np.zeros(shape=[num_total_seq,exp_seq_len])
+        new_index = np.zeros(shape=[num_total_seq])
+
+        count = 0
+        for i in range(len(seq_num_list)):
+            #该段轨迹的长度
+            seg_len = index[1][i]
+            #索引开始
+            seg_start = index[0][i]
+            seg_end = seg_start + seg_len
+            #二维数组
+            seg_data = x[seg_start:seg_end]
+            seg_lab = y[seg_start:seg_end]
+
+            num_full_seq = seg_len // exp_seq_len
+            if num_full_seq:
+                full_seq = seg_data[0:num_full_seq * exp_seq_len].reshape((num_full_seq, exp_seq_len, features_len))
+                full_lab = seg_lab[0:num_full_seq * exp_seq_len].reshape((num_full_seq, exp_seq_len))
+                new_data[count:(count + num_full_seq)] = full_seq
+                new_label[count:(count + num_full_seq)] = full_lab
+                new_index[0][count:(count + num_full_seq)] = i
+                new_index[1][count:(count + num_full_seq)] = exp_seq_len
+                count += num_full_seq
+            #如果序列没有对齐
+            if num_full_seq <seq_num_list[i]:
+                remain_seq = np.zeros((exp_seq_len, features_len))
+                remain_seq[0:(seg_len - num_full_seq * exp_seq_len)] = seg_data[
+                                                                          num_full_seq * exp_seq_len:seg_len]
+                remain_lab = np.zeros(exp_seq_len)
+                remain_lab[0:(seg_len - num_full_seq * exp_seq_len)] = seg_lab[
+                                                                          num_full_seq * exp_seq_len:seg_len]
+                new_data[count] = remain_seq
+                new_label[count] = remain_lab
+                new_index[0][count] = i
+                new_index[1][count] = seg_len - num_full_seq * exp_seq_len
+                count += 1
+        return (new_data,new_label,new_index)
 
 
 if __name__ == "__main__":
-    Data.sovle_row_data()
-    Data.caculate_feature()
+    #Data.sovle_row_data()
+    #Data.caculate_feature()
+    #Data.caculate_feature_max_min()
+    #Data.caculate_all_max_min()
+    #Data.discretization()
+    Data.create_npy()
