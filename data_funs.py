@@ -590,19 +590,19 @@ class Data:
         #for name,group in data_classes_4_groups:
 
     @staticmethod
-    def slice_seq(x,y,index,exp_seq_len):
+    def slice_seq(x,index,exp_seq_len):
         #index 第一维是索引，第二维是长度
 
         #特征长度
         features_len = x.shape[1]
         #每一段可以切出的序列个数
-        seq_num_list = np.array([math.ceil(i) for i in index[1] / exp_seq_len])
+        seq_num_list = np.array([math.ceil(i) for i in (index[1]/exp_seq_len)])
         #总序列个数
         num_total_seq = int(sum(seq_num_list))
         #结果矩阵
-        new_data = np.zeros(shape=[num_total_seq,exp_seq_len,features_len])
-        new_label = np.zeros(shape=[num_total_seq,exp_seq_len])
-        new_index = np.zeros(shape=[num_total_seq])
+        new_data = np.zeros(shape=[num_total_seq,exp_seq_len,features_len],dtype=np.float64)
+        #new_label = np.zeros(shape=[num_total_seq,exp_seq_len])
+        new_index = np.zeros(shape=[2,num_total_seq],dtype=np.int64)
 
         count = 0
         for i in range(len(seq_num_list)):
@@ -613,31 +613,25 @@ class Data:
             seg_end = seg_start + seg_len
             #二维数组
             seg_data = x[seg_start:seg_end]
-            seg_lab = y[seg_start:seg_end]
 
             num_full_seq = seg_len // exp_seq_len
             if num_full_seq:
                 full_seq = seg_data[0:num_full_seq * exp_seq_len].reshape((num_full_seq, exp_seq_len, features_len))
-                full_lab = seg_lab[0:num_full_seq * exp_seq_len].reshape((num_full_seq, exp_seq_len))
                 new_data[count:(count + num_full_seq)] = full_seq
-                new_label[count:(count + num_full_seq)] = full_lab
+                #new_label[count:(count + num_full_seq)] = full_lab
                 new_index[0][count:(count + num_full_seq)] = i
                 new_index[1][count:(count + num_full_seq)] = exp_seq_len
                 count += num_full_seq
             #如果序列没有对齐
             if num_full_seq <seq_num_list[i]:
                 remain_seq = np.zeros((exp_seq_len, features_len))
-                remain_seq[0:(seg_len - num_full_seq * exp_seq_len)] = seg_data[
-                                                                          num_full_seq * exp_seq_len:seg_len]
-                remain_lab = np.zeros(exp_seq_len)
-                remain_lab[0:(seg_len - num_full_seq * exp_seq_len)] = seg_lab[
-                                                                          num_full_seq * exp_seq_len:seg_len]
+                remain_seq[0:(seg_len - num_full_seq * exp_seq_len)] = seg_data[num_full_seq * exp_seq_len:seg_len]
                 new_data[count] = remain_seq
-                new_label[count] = remain_lab
+                #new_label[count] = remain_lab
                 new_index[0][count] = i
                 new_index[1][count] = seg_len - num_full_seq * exp_seq_len
                 count += 1
-        return (new_data,new_label,new_index)
+        return (new_data,new_index)
 
 
 if __name__ == "__main__":
