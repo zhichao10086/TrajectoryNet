@@ -12,13 +12,14 @@ from myThread import MyThread
 import random
 from tensorflow.contrib import layers
 from data_funs import Data
+import param
 
 conf = config.Config("data/config.json")
-log_path = "./logdir/"
-data_path = "./data/"
+log_path = "./logdir/transportation_feature_en_1/"
+data_path = "./data/transportation_feature_en_1/"
 task = conf.task
 LOGGER = Log(log_path)
-len_features = 60
+len_features = conf.num_features * param.width
 
 def loadData_rnn_nvn():
     x_file = 'data/x_mobility.npy'
@@ -111,12 +112,11 @@ def loadData_rnn_nvn():
 
     return (train_data,test_data,val_data,train_config,test_config,valid_config)
 
-
 def load_data_rnn_nv1(classes):
     features_arr_list = []
     index_arr_list = []
     label_arr_list = []
-    data_file_name_exp = data_path + "transportation_mode"
+    data_file_name_exp = data_path +"transportation_mode"
     for i in range(classes):
         # data_file  = data_file_name +str(i) +".npy"
         index_df = pd.DataFrame(pd.read_csv(data_file_name_exp +"_"+ str(i) + "_seg_index.csv"))
@@ -126,6 +126,14 @@ def load_data_rnn_nv1(classes):
         # index shape = [2,总个数]
         # 第一维是第几段轨迹 第二维是在固定长度为exp_seq_len中的实际长度
         # data shape =[seq_nums,exp_seq_len,feature_len]
+
+        #混淆数据  试行********************************
+        feature_perm = np.random.permutation(range(features_arr.shape[0]))
+        features_arr_shuffle = features_arr[feature_perm,:]
+        features_arr = np.concatenate((features_arr,features_arr_shuffle),axis=0)
+        index_arr = np.concatenate((index_arr,index_arr),axis=1)
+        #完毕 *****************************************
+
         (data, index) = Data.slice_seq(features_arr, index_arr, conf.exp_seq_len)
         label = np.zeros(shape=[index.shape[1]], dtype=np.int32)
         label[:] = i
@@ -133,7 +141,7 @@ def load_data_rnn_nv1(classes):
         index_arr_list.append(index)
         label_arr_list.append(label)
 
-    # 分训练集与测试集 验证集 7：2：1
+    # 分训练集与测试集 验证集 8：1：1
     train_data_all = None
     train_label_all = None
     train_early_all = None
@@ -153,10 +161,10 @@ def load_data_rnn_nv1(classes):
         # 样本总数
         seq_nums = index_arr.shape[1]
         #控制变量
-        np.random.seed(1)
+        np.random.seed(2)
         index_perm = np.random.permutation(range(seq_nums))
-        train_count = int(np.floor(seq_nums * 0.7))
-        valid_count = int(np.floor(seq_nums * 0.8))
+        train_count = int(np.floor(seq_nums * 0.8))
+        valid_count = int(np.floor(seq_nums * 0.9))
         test_count = seq_nums
         train_index = index_perm[0:train_count]
         valid_index = index_perm[train_count + 1:valid_count]
@@ -203,6 +211,8 @@ def load_data_rnn_nv1(classes):
     del features_arr_list
     del label_arr_list
     del index_arr_list
+
+    #打乱数据
     np.random.seed(1)
     train_perm = np.random.permutation(range(train_early_all.shape[0]))
     np.random.seed(1)
@@ -210,6 +220,7 @@ def load_data_rnn_nv1(classes):
     np.random.seed(1)
     test_perm = np.random.permutation(range(test_early_all.shape[0]))
 
+    #shape=[序列长度，总个数，特征长度]
     train_data_all = np.transpose(train_data_all, [1, 0, 2])
     valid_data_all = np.transpose(valid_data_all, [1, 0, 2])
     test_data_all = np.transpose(test_data_all, [1, 0, 2])
@@ -236,54 +247,58 @@ def evaluate_model(sess, minibatch):
     #if conf.test_mode:
     #    run_batch(sess, mtest, test_data, tf.no_op(), minibatch)
 
-    t_train = MyThread(run_batch, (sess, train_model, train_data, tf.no_op(), minibatch))
-    t_test = MyThread(run_batch, (sess, test_model, test_data, tf.no_op(), minibatch))
-    t_val = MyThread(run_batch, (sess, valid_model, valid_data, tf.no_op(), minibatch))
+    result_train = run_batch(sess,train_model,train_data,tf.no_op(),minibatch)
+    result_test = run_batch(sess,test_model,test_data,tf.no_op(),minibatch)
+    result_valid = run_batch(sess,valid_model,valid_data,tf.no_op(),minibatch)
 
-    t_train.start()
-    t_test.start()
-    t_val.start()
+    #t_train = MyThread(run_batch, (sess, train_model, train_data, tf.no_op(), minibatch))
+    #t_test = MyThread(run_batch, (sess, test_model, test_data, tf.no_op(), minibatch))
+    #t_val = MyThread(run_batch, (sess, valid_model, valid_data, tf.no_op(), minibatch))
 
-    t_train.join()
-    result_train = t_train.get_result()
-    t_test.join()
-    result_test = t_test.get_result()
-    t_val.join()
-    result_val = t_val.get_result()
+    #t_train.start()
+    #t_test.start()
+    #t_val.start()
+
+    #t_train.join()
+    #result_train = t_train.get_result()
+    #t_test.join()
+    #result_test = t_test.get_result()
+    #t_val.join()
+    #result_val = t_val.get_result()
 
     print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
         result_train[0], result_train[1]))
     print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_val[0], result_val[1]))
+        result_valid[0], result_valid[1]))
     print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
         result_test[0], result_test[1]))
 
-    return result_train + result_test + result_val
+    return result_train + result_test + result_valid
 
-def run_batch(session, m, data, eval_op, minibatch):
+def run_batch(session, model, data, eval_op, minibatch):
     # 准备数据
     x, y, e_stop = data
-    epoch_size = x.shape[1] // m.batch_size
+    epoch_size = x.shape[1] // model.batch_size
 
     # 记录结果
     costs = []
     correct = []
 
     for batch in range(epoch_size):
-        x_batch = x[:, batch * m.batch_size: (batch + 1) * m.batch_size, :]
-        y_batch = y[batch * m.batch_size: (batch + 1) * m.batch_size]
-        e_batch = e_stop[batch * m.batch_size: (batch + 1) * m.batch_size]
+        x_batch = x[:, batch * model.batch_size: (batch + 1) * model.batch_size, :]
+        y_batch = y[batch * model.batch_size: (batch + 1) * model.batch_size]
+        e_batch = e_stop[batch * model.batch_size: (batch + 1) * model.batch_size]
 
-        temp_dict = {m.input_data: x_batch}
-        temp_dict.update({m.targets: y_batch})
-        temp_dict.update({m.early_stop: e_batch})
+        temp_dict = {model.input_data: x_batch}
+        temp_dict.update({model.targets: y_batch})
+        temp_dict.update({model.early_stop: e_batch})
 
 
-        if m.is_training and eval_op == m.train_op:
+        if model.is_training and eval_op == model.train_op:
             #如果是训练模式，且op正常 则正常训练
             print("开始训练第 %d 个batch" % batch)
-            _, cost, accuracy = session.run([eval_op,m.cost, m.accuracy],
-                                                               feed_dict=temp_dict)
+            _, cost, accuracy = session.run([eval_op, model.cost, model.accuracy],
+                                            feed_dict=temp_dict)
 
             if minibatch % conf.evaluate_freq == 0:
                 result = evaluate_model(session, minibatch)  #评估模型，返回结果
@@ -292,16 +307,16 @@ def run_batch(session, m, data, eval_op, minibatch):
 
 
         else:
-            cost, confusion, accuracy, _ = session.run([m.cost, m.confusion_matrix, m.accuracy, eval_op],
+            cost, confusion, accuracy, _ = session.run([model.cost, model.confusion_matrix, model.accuracy, eval_op],
                                                        feed_dict=temp_dict)
 
-            if m.net_type == NetType.RNN_NVN:
+            if model.net_type == NetType.RNN_NVN:
                 # keep results for this minibatch
                 costs.append(cost)
                 correct.append(accuracy * sum(e_batch))
 
                 # print test confusion matrix
-                if not m.is_training and not m.is_validation:
+                if not model.is_training and not model.is_validation:
 
                     LOGGER.training_log(str(minibatch) + "测试集的混淆矩阵")
                     LOGGER.training_log(str(confusion))
@@ -319,12 +334,12 @@ def run_batch(session, m, data, eval_op, minibatch):
                 if batch == epoch_size - 1:
                     accuracy = sum(correct) / float(sum(e_stop))
                     return (sum(costs) / float(epoch_size), accuracy)
-            elif m.net_type == NetType.RNN_NV1:
+            elif model.net_type == NetType.RNN_NV1:
                 costs.append(cost)
                 correct.append(accuracy)
 
                 # print test confusion matrix
-                if not m.is_training and not m.is_validation:
+                if not model.is_training and not model.is_validation:
                     LOGGER.training_log(str(minibatch) + "测试集的混淆矩阵")
                     LOGGER.training_log(str(confusion))
                     # output predictions in test mode
@@ -345,6 +360,79 @@ def run_batch(session, m, data, eval_op, minibatch):
 
     # training: keep track of minibatch number
     return (minibatch)
+
+def evaluate_model_all(sess,epoch):
+    result_train = run_batch_all(sess, train_model, train_data, tf.no_op(), epoch)
+    result_test = run_batch_all(sess, test_model, test_data, tf.no_op(), epoch)
+    result_valid = run_batch_all(sess, valid_model, valid_data, tf.no_op(), epoch)
+
+    LOGGER.summary_log(result_train+result_test+result_valid,epoch)
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_train[0], result_train[1]))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_valid[0], result_valid[1]))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_test[0], result_test[1]))
+
+    return result_train + result_test + result_valid
+
+def run_batch_all(session,model,data,eval_op,epoch):
+    x, y, e_stop = data
+    epoch_size = x.shape[1] // model.batch_size
+
+    perm = np.random.permutation(range(e_stop.shape[0]))
+    x = x[:,perm,:]
+    y = y[perm]
+    e_stop = e_stop[perm]
+
+
+    # 记录结果
+    costs = []
+    correct = []
+    for batch in range(epoch_size):
+        x_batch = x[:, batch * model.batch_size: (batch + 1) * model.batch_size, :]
+        y_batch = y[batch * model.batch_size: (batch + 1) * model.batch_size]
+        e_batch = e_stop[batch * model.batch_size: (batch + 1) * model.batch_size]
+
+        temp_dict = {model.input_data: x_batch}
+        temp_dict.update({model.targets: y_batch})
+        temp_dict.update({model.early_stop: e_batch})
+
+        if model.is_training and eval_op == model.train_op:
+            _= session.run([eval_op],feed_dict=temp_dict)
+
+        else:
+            cost, confusion, accuracy, _ = session.run([model.cost, model.confusion_matrix, model.accuracy, eval_op],feed_dict=temp_dict)
+
+            if model.is_test:
+                LOGGER.training_log(str(epoch) + "测试集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
+            elif model.is_validation:
+                LOGGER.training_log(str(epoch) + "验证集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
+            elif model.is_training:
+                LOGGER.training_log(str(epoch) + "训练集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
+
+            if model.net_type == NetType.RNN_NVN:
+                # keep results for this minibatch
+                costs.append(cost)
+                correct.append(accuracy * sum(e_batch))
+
+                #计算平均精度与损失
+                if batch == epoch_size - 1:
+                    accuracy = sum(correct) / float(sum(e_stop))
+                    return (sum(costs) / float(epoch_size), accuracy)
+            elif model.net_type == NetType.RNN_NV1:
+                costs.append(cost)
+                correct.append(accuracy)
+
+                # 计算平均精度与损失
+                if batch == epoch_size - 1:
+                    cost_mean = sum(costs) / float(epoch_size)
+                    accuracy_mean = sum(correct) / float(epoch_size)
+                    return (cost_mean, accuracy_mean)
 
 def rnn_nvn_model():
     #1 处理数据
@@ -409,13 +497,29 @@ def rnn_nv1_model():
     global test_data
     global valid_data
     train_data,valid_data,test_data=load_data_rnn_nv1(conf.num_classes)
+    train_conf = None
+    valid_conf = None
+    test_conf = None
 
-    train_conf = TrainingConfig(True,False,False,conf.batch_size,len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.GRU_b)
-    valid_conf = TrainingConfig(False,True,False,len(valid_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.GRU_b)
-    test_conf = TrainingConfig(False,False,True,len(test_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.GRU_b)
+    if conf.rnn_type == "lstm_b":
+
+        train_conf = TrainingConfig(True,False,False,conf.batch_size,len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
+        valid_conf = TrainingConfig(False,True,False,len(valid_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
+        test_conf = TrainingConfig(False,False,True,len(test_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
+    elif conf.rnn_type == "gru_b":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        valid_conf = TrainingConfig(False, True, False, len(valid_data[2]), len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        test_conf = TrainingConfig(False, False, True, len(test_data[2]), len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU_b)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    #config.gpu_options.per_process_gpu_memory_fraction = 0.1  # 占用GPU90%的显存
 
     minibatch = 0
-    with tf.Session() as sess:
+    with tf.Session(config=config) as sess:
         initializer = tf.random_uniform_initializer(0, conf.init_scale)
 
         with tf.variable_scope("model",reuse=False,initializer=initializer):
@@ -442,11 +546,17 @@ def rnn_nv1_model():
             saver.restore(sess, data_path + task)
             print("装载变量......")
 
+        LOGGER.training_log(str(conf.__dict__))
+        LOGGER.training_log("activation = tanh")
+
         for i in range(conf.num_epochs):
             print("第 {0}次epoch".format(i))
-            minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
-            if (i + 1) % 10 == 0:
-                saver.save(sess, data_path + task)
+            #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
+            run_batch_all(sess,train_model,train_data,train_model.train_op,i)
+            evaluate_model_all(sess,i)
+
+            #if (i + 1) % 10 == 0:
+            #    saver.save(sess, data_path + task)
 
 def main():
     rnn_nv1_model()

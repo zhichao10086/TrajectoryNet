@@ -1,5 +1,7 @@
 from enum import Enum
 
+width = 20
+
 class RNNType(Enum):
     LSTM = 1 # LSTM unidirectional
     LSTM_b = 2 # LSTM bidirectional
@@ -11,3 +13,10 @@ class NetType(Enum):
     CNN  = 2
     RNN_NV1 = 3
     RNN_NVN = 4
+
+class FeatureName(Enum):
+    SPEED_SEC = "speed_sec"
+    ACC_SEC = "acc_sec"
+    AVG_SPEED = "avg_speed"
+    STD_SPEED = "std_speed"
+    MEAN_ACC = "mean_acc"

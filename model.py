@@ -1,6 +1,7 @@
 import config
 import tensorflow as tf
 from customized_gru import CustomizedGRU as GRUCell
+#from tensorflow.python.ops.rnn_cell import GRUCell
 import tensorflow.contrib as tf_ct
 from tensorflow.contrib.rnn import BasicLSTMCell
 from param import RNNType
@@ -39,6 +40,11 @@ class Model(object):
         self.activation = config.activation         #激励函数
         self.batch_size = config.batch_size         #batch尺寸
 
+        self.current_step = tf.Variable(0,trainable=False)
+        self.decay_step = 10
+        self.decay_rate = 0.9
+        #self._learning_rate = tf.train.exponential_decay(self.learning_rate,self.current_step,self.decay_step,self.decay_rate)
+        self._learning_rate = 0.001
         #self.current_step = tf.Variable(0)
         if self.net_type == NetType.DNN:
             self.init_dnn_type(conf)
@@ -48,7 +54,6 @@ class Model(object):
             self.init_rnn_type_nv1(conf)
         elif self.net_type == NetType.RNN_NVN:
             self.init_rnn_type_nvn(conf)
-
 
     def init_rnn_type_nv1(self, conf):
         # 输入数据
@@ -91,16 +96,16 @@ class Model(object):
 
         with tf.name_scope("cross_entropy") as scope:
             self._onehot_labels = tf.one_hot(self._valid_target,depth=self.num_classes)
-
             self._cost = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=self._onehot_labels,logits=self._predictions))
+            self.add_l2_regulation()
 
+        with tf.name_scope("accuracy") as scope:
             self._correct_prediction = tf.equal(self._valid_target, self._digit_predictions)
             self._accuracy = tf.reduce_mean(tf.cast(self._correct_prediction,tf.float32))
             #self._accuracy = tf.metrics.accuracy( self._valid_target,self._digit_predictions)[1]
 
-
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost)
+            self._train_op = tf.train.AdamOptimizer(self._learning_rate).minimize(self._cost,global_step=self.current_step)
 
         if conf.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
@@ -156,6 +161,7 @@ class Model(object):
                 [self._valid_target],
                 [tf.ones([int(self.getTensorShape(self._valid_target)[0])])])
             self._cost = tf.reduce_mean(self._loss)
+            self.add_l2_regulation()
             # 计算l2cost
             # tv = tf.trainable_variables()
             # #tf_ct.layers.l2_regularizer()
@@ -168,7 +174,7 @@ class Model(object):
             self._accuracy = tf.contrib.metrics.accuracy(self._digit_predictions, self._valid_target)
 
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost)
+            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,global_step=self.current_step)
 
         if conf.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
@@ -254,8 +260,13 @@ class Model(object):
                 # Remove padding here
                 self._valid_output = self.get_valid_sequence(self._output, self.hidden_size * 2)
             elif self.net_type == NetType.RNN_NV1:
-                state_fw,state_bw = self._state
-                self._valid_output = tf.concat(axis=1,values=[state_fw[-1],state_bw[-1]])
+                state_fw, state_bw = self._state
+                if self.rnn_type == RNNType.LSTM_b :
+                    state_fw_h = state_fw[-1]
+                    state_bw_h = state_bw[-1]
+                    self._valid_output = tf.concat(axis=1, values=[state_fw_h[-1], state_bw_h[-1]])
+                elif self.rnn_type == RNNType.GRU_b:
+                    self._valid_output = tf.concat(axis=1,values=[state_fw[-1],state_bw[-1]])
 
     def get_softmax_layer_output(self):
         if self.net_type == NetType.DNN:
@@ -268,6 +279,7 @@ class Model(object):
 
                 self._softmax_w = tf.get_variable("softmax_w", [self.hidden_size * 2, self.num_classes])
 
+
         # softmax层的bias
         self._softmax_b = tf.get_variable("softmax_b", [self.num_classes], initializer=self.bias_initializer)
 
@@ -276,6 +288,18 @@ class Model(object):
         self._prob_predictions = tf.nn.softmax(self._predictions)
         # 获得每个数据最大的索引
         self._digit_predictions = tf.argmax(self._prob_predictions, axis=1,output_type=tf.int32)
+
+    def add_l2_regulation(self):
+
+        # 计算l2cost
+        tv = tf.trainable_variables()
+
+        # #tf_ct.layers.l2_regularizer()
+        #
+        self._l2_regularization_cost = self.l2_preparam*tf.reduce_sum([tf.nn.l2_loss(v) for v in tv])
+        # #总cost为 基础cost + l2cost
+        self._cost = self._cost+self._l2_regularization_cost
+
 
     def get_valid_sequence(self, seq, feature_size):
         """remove padding from sequences"""

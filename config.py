@@ -1,5 +1,6 @@
 import json
 from tensorflow.python.ops.math_ops import tanh
+from tensorflow.python.ops.math_ops import sigmoid
 from enum import Enum
 from param import RNNType
 from param import NetType
@@ -56,6 +57,7 @@ class Config(object):
         #L2正则化超参数
         self.l2_preparam = dconf["l2_preparam"]
         #
+        self.rnn_type = dconf["rnn_type"]
 
 
 

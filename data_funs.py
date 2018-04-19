@@ -8,6 +8,8 @@ import os
 import time
 import pandas as pd
 import util
+from param import width
+from param import FeatureName
 
 
 class Data:
@@ -472,7 +474,7 @@ class Data:
         #所有数据
         users_df = pd.DataFrame()
         # status = open(datadir+"status.csv","w+")
-        width = 20
+
         for user in user_list:
             user_id = user[0:3]
             # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
@@ -488,6 +490,7 @@ class Data:
             users_df = users_df.append(raw_data_df)
 
         users_df.reset_index(drop=True)
+        print(users_df.info())
 
         speed_sec = Data.equal_width(users_df["speed_sec"],width)
         acc_sec = Data.equal_width(users_df["acc_sec"],width)
@@ -507,14 +510,22 @@ class Data:
         #result_df    columns =[userid(1),speed_sec(width),avg_speed(width),std_speed(width),acc_sec(width),mean_acc(width),label(1),seg_label(1)]
 
         #result_file = open(datadir+"user_features_data_en.csv",mode="w+")
-        result_df.to_csv(datadir+"user_features_data_en.csv",mode="w+",header=False,index=False)
+        result_df.to_csv(datadir+"user_features_data_en_1.csv",mode="w+",header=True,index=False)
 
         valiable_user_data.close()
 
     @staticmethod
     def filter_box_quantile(x,k):
-        min = x.quantile(0.02)
-        max = x.quantile(0.95)
+        print(x.name)
+        #不同的特征不同过滤
+        min = 0
+        max = 0
+        if x.name == FeatureName.SPEED_SEC.value or x.name == FeatureName.AVG_SPEED.value or x.name == FeatureName.STD_SPEED.value:
+            min = x.quantile(0)
+            max = x.quantile(0.95)
+        elif x.name == FeatureName.ACC_SEC.value or x.name == FeatureName.MEAN_ACC.value:
+            min = x.quantile(0.01)
+            max = x.quantile(0.95)
         n = len(x.index)
         y = np.array(x.values)
 
@@ -531,7 +542,6 @@ class Data:
         series_y = pd.Series(data=y)
 
         return series_y
-
 
     @staticmethod
     def equal_width(x,width):
@@ -552,8 +562,8 @@ class Data:
     @staticmethod
     def create_npy():
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
-        self_data_dir = "./data/"
-        user_data_file_name = datadir + "user_features_data_en.csv"
+        self_data_dir = "./data/transportation_feature_en_1/"
+        user_data_file_name = datadir + "user_features_data_en_1.csv"
         user_data_file = open(user_data_file_name, "r")
         user_data_df = pd.DataFrame(pd.read_csv(user_data_file))
         classes = 4
@@ -568,7 +578,7 @@ class Data:
             features_arr = np.array(group.iloc[:,0:100])
             seg_label_arr = np.array(group.iloc[:,-2])
             seg_label_unique,seg_label_index,seg_label_count = np.unique(seg_label_arr,return_index=True,return_counts=True)
-            index_file_name = self_data_dir + "transportation_mode" + str(name) +"_seg_index.csv"
+            index_file_name = self_data_dir + "transportation_mode_" + str(name) +"_seg_index.csv"
             index_df = pd.DataFrame()
             index_df["seg_label_unique"] = seg_label_unique
             index_df["seg_label_index"] = seg_label_index.astype(np.int32)
@@ -633,11 +643,10 @@ class Data:
                 count += 1
         return (new_data,new_index)
 
-
 if __name__ == "__main__":
     #Data.sovle_row_data()
     #Data.caculate_feature()
     #Data.caculate_feature_max_min()
     #Data.caculate_all_max_min()
-    #Data.discretization()
+    Data.discretization()
     Data.create_npy()
