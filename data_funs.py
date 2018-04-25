@@ -1,4 +1,6 @@
 from __future__ import division
+import tensorflow as tf
+import sys
 import csv
 
 import numpy as np
@@ -10,6 +12,8 @@ import pandas as pd
 import util
 from param import width
 from param import FeatureName
+import config
+import param
 
 
 class Data:
@@ -96,8 +100,10 @@ class Data:
             count += 1
         return (new_data, new_label, new_mmsi)
 
+
+    #处理原始数据，提取经纬度，时间，与标签对应
     @staticmethod
-    def sovle_row_data():
+    def sovle_row_data(interval):
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
 
         valiable_user_data = open("./data/have_label_user.txt","r")
@@ -114,12 +120,10 @@ class Data:
                 l = i[0:len(i)-1].split("\t")
                 label_list.append(l)
 
-
-
             plt_path = datadir + user_id + "/Trajectory"
             list_plt_name = os.listdir(plt_path)
 
-            user_data = datadir + user_id + "/userdata.csv"
+            user_data = datadir + user_id + "/userdata_interval_"+str(interval)+".csv"
             user_data_file = open(user_data,"w")
 
             label_time_index = 0
@@ -185,7 +189,7 @@ class Data:
                             result_line = user_id +"," + line[0:len(line)-1] + "," + label_list[label_time_index][-1] + "," +str(label_time_index)
                             user_data_file.write(result_line + "\n")
                             last_time = line_time
-                            k+=1
+                            k+=interval
                         elif line_time >label_end_time:
 
                             label_time_index += 1
@@ -208,122 +212,124 @@ class Data:
             #plt_file.close()
             user_data_file.close()
 
-
+    #计算特征
     @staticmethod
-    def caculate_feature():
+    def caculate_feature(interval_list):
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
-        feature_num = 10
+        feature_num = 6
         valiable_user_data = open("./data/have_label_user.txt", "r")
         user_list = valiable_user_data.readlines()
-        for user in user_list:
-            user_id = user[0:3]
-            user_data_name = datadir + user_id + "/userdata.csv"
-            print("开始处理",user_id)
-            user_data_file = open(user_data_name,"r")
+        for interval in interval_list:
+            print("处理%d"%(interval))
+            for user in user_list:
+                user_id = user[0:3]
+                user_data_name = datadir + user_id + "/userdata_interval_"+str(interval)+".csv"
+                #user_data_name = datadir + user_id + "/userdata.csv"
+                print("开始处理",user_id)
+                user_data_file = open(user_data_name,"r")
 
-            # user_data_file = np.loadtxt(user_data_name,dtype=np.str,delimiter=",")
-            # label_list = user_data_file[:,-1]
-            # label_list = label_list.astype(int)
-            # label_unique,label_index,label_count = np.unique(label_list, return_counts=True, return_index=True)
-            # #print(label_unique,label_index,label_count)
-            #
-            #
-            # for i in range(1):
-            #     #一个label要使用的数组
-            #     #result = np.empty(shape=[label_count[i],feature_num],dtype=np.str_)
-            #     #一个label的索引在一个用户文件中
-            #     start = label_index[i]
-            #     end = label_index[i] + label_count[i]
-            #     #一个label索引对应的原始数据
-            #     data = user_data_file[start:end,:]
-            #     #经纬度 以及时间
-            #     lat_lon_time = data[:,[1,2,5]]
-            #     #将user_id,经纬度赋值给结果数组
-            #     #result[:,0:3] = data[:,0:3]
-            #
-            #     #计算特征  速度 加速度  开始点没有速度，第一个点没有加速度， 所以最后数组比原始数组少两个点
-            #     for i in range(1,len(lat_lon_time)):
-            #         dis = util.jwd2dis(lat_lon_time[i][0],lat_lon_time[i][1],lat_lon_time[i-1][0],lat_lon_time[i-1][1])
-            #         t = util.timestamp2second(lat_lon_time[i],lat_lon_time[i-1])
-            #
-            #     print(lat_lon_time)
-
-
-
-            # #user_data = user_data_file.readlines()
-            #列名
-            col_name = ["user_id","lat","lon","non-use","alt","timestamp","date","time","label","label_count"]
-            #原始数据
-            raw_data_df = pd.DataFrame(pd.read_csv(user_data_file,header=None,names=col_name))
-            #结果列名
-            result_col_name = ["user_id","lat","lon","speed_sec","acc_sec","std_speed","avg_speed","mean_acc","date","time","label","seg_label"]
-            #结果数据
-            result_df = pd.DataFrame(columns=result_col_name)
-
-            #通过标签分组轨迹
-            label_gp = raw_data_df.groupby(by=col_name[-1])
-
-            for label_count,group in label_gp:
-                #print(group)
-                #print(len(group.index))
-                #temp_result = pd.DataFrame(columns = result_col_name)
-                #特征数组
-                print("label_count",label_count)
-                if (group.index[-1] - group.index[0]) < 2:
-                    print("丢弃本组数据")
-                    continue
-                feature_arr = np.zeros(shape=[group.index[-1] - group.index[0] +1,5],dtype=np.float64)
-                #print(group)
-                #print(len(group.index))
-                offset =  group.index[0]
-                for ii in  group.index[1:]:
-                    #row_result = pd.Series(index=result_col_name)
-                    dis = util.jwd2dis(group.loc[ii,"lat"],group.loc[ii,"lon"],group.loc[ii-1,"lat"],group.loc[ii-1,"lon"])
-                    t = util.timestamp2second(group.loc[ii,"timestamp"],group.loc[ii-1,"timestamp"])
-
-                    feature_arr[ii - offset][0] = dis/t
-                    if(ii > offset+1):
-                        #a = (v1-v0)/t
-                        feature_arr[ii- offset][1] = (feature_arr[ii- offset][0] - feature_arr[ii-1-offset][0]) / t
+                # user_data_file = np.loadtxt(user_data_name,dtype=np.str,delimiter=",")
+                # label_list = user_data_file[:,-1]
+                # label_list = label_list.astype(int)
+                # label_unique,label_index,label_count = np.unique(label_list, return_counts=True, return_index=True)
+                # #print(label_unique,label_index,label_count)
+                #
+                #
+                # for i in range(1):
+                #     #一个label要使用的数组
+                #     #result = np.empty(shape=[label_count[i],feature_num],dtype=np.str_)
+                #     #一个label的索引在一个用户文件中
+                #     start = label_index[i]
+                #     end = label_index[i] + label_count[i]
+                #     #一个label索引对应的原始数据
+                #     data = user_data_file[start:end,:]
+                #     #经纬度 以及时间
+                #     lat_lon_time = data[:,[1,2,5]]
+                #     #将user_id,经纬度赋值给结果数组
+                #     #result[:,0:3] = data[:,0:3]
+                #
+                #     #计算特征  速度 加速度  开始点没有速度，第一个点没有加速度， 所以最后数组比原始数组少两个点
+                #     for i in range(1,len(lat_lon_time)):
+                #         dis = util.jwd2dis(lat_lon_time[i][0],lat_lon_time[i][1],lat_lon_time[i-1][0],lat_lon_time[i-1][1])
+                #         t = util.timestamp2second(lat_lon_time[i],lat_lon_time[i-1])
+                #
+                #     print(lat_lon_time)
 
 
 
-                avg_speed = np.mean(feature_arr[2:,0],axis=0)
-                acc_mean = np.mean(feature_arr[2:,1],axis=0)
-                std_speed = np.std(feature_arr[2:,0],axis=0)
-                feature_arr[2:,2] = std_speed
-                feature_arr[2:,3] = avg_speed
-                feature_arr[2:,4] = acc_mean
-                feature_arr = feature_arr[2:,:]
+                # #user_data = user_data_file.readlines()
+                #列名
+                col_name = ["user_id","lat","lon","non-use","alt","timestamp","date","time","label","label_count"]
+                #原始数据
+                raw_data_df = pd.DataFrame(pd.read_csv(user_data_file,header=None,names=col_name))
+                #结果列名
+                result_col_name = ["user_id","lat","lon","speed_sec","acc_sec","std_speed","avg_speed","mean_acc","std_acc","date","time","label","seg_label"]
+                #结果数据
+                result_df = pd.DataFrame(columns=result_col_name)
 
-                #print(feature_arr)
-                result = pd.DataFrame(columns=result_col_name)
-                #result["user_id"] = group["user_id"][2:len(group.index)]
-                start = group.index[0] + 2
-                end = group.index[-1]
-                result["user_id"] = group.loc[start:end,"user_id"]
-                result["lat"] = group.loc[start:end,"lat"]
-                result["lon"] = group.loc[start:end,"lon"]
-                #print(result.info(),length,feature_arr.shape)
-                result["speed_sec"] = feature_arr[:,0]
-                result["acc_sec"] = feature_arr[:,1]
-                result["std_speed"] = feature_arr[:,2]
-                result["avg_speed"] = feature_arr[:,3]
-                result["mean_acc"] = feature_arr[:,4]
-                result["date"] = group.loc[start:end,"date"]
-                result["time"] = group.loc[start:end,"time"]
-                result["label"] = util.switch_mode(group.loc[start,"label"])
-                result["seg_label"] = user_id +" " + str(group.loc[start,"label_count"])
-                #一组label最终结果dataframe
-                result_df = result_df.append(result)
+                #通过标签分组轨迹
+                label_gp = raw_data_df.groupby(by=col_name[-1])
 
+                for label_count,group in label_gp:
+                    #print(group)
+                    #print(len(group.index))
+                    #temp_result = pd.DataFrame(columns = result_col_name)
+                    #特征数组
+                    #print("label_count",label_count)
+                    if (group.index[-1] - group.index[0]) < 2:
+                        print("丢弃本组数据")
+                        continue
+                    feature_arr = np.zeros(shape=[group.index[-1] - group.index[0] +1,feature_num],dtype=np.float64)
+                    #print(group)
+                    #print(len(group.index))
+                    offset =  group.index[0]
+                    for ii in  group.index[1:]:
+                        #row_result = pd.Series(index=result_col_name)
+                        dis = util.jwd2dis(group.loc[ii,"lat"],group.loc[ii,"lon"],group.loc[ii-1,"lat"],group.loc[ii-1,"lon"])
+                        t = util.timestamp2second(group.loc[ii,"timestamp"],group.loc[ii-1,"timestamp"])
 
+                        feature_arr[ii - offset][0] = dis/t
+                        if(ii > offset+1):
+                            #a = (v1-v0)/t
+                            feature_arr[ii- offset][1] = (feature_arr[ii- offset][0] - feature_arr[ii-1-offset][0]) / t
 
-            result_df.index = range(0,result_df.shape[0])
+                    #0 放的是速度 1放的是加速度
+                    avg_speed = np.mean(feature_arr[2:,0],axis=0)
+                    acc_mean = np.mean(feature_arr[2:,1],axis=0)
+                    std_speed = np.std(feature_arr[2:,0],axis=0)
+                    std_acc = np.std(feature_arr[2:,1])
+                    feature_arr[2:,2] = std_speed
+                    feature_arr[2:,3] = avg_speed
+                    feature_arr[2:,4] = acc_mean
+                    feature_arr[2:,5] = std_acc
+                    feature_arr = feature_arr[2:,:]
 
-            result_df.to_csv(datadir + user_id +"/user_features.csv",index=False)
-            user_data_file.close()
+                    #print(feature_arr)
+                    result = pd.DataFrame(columns=result_col_name)
+                    #result["user_id"] = group["user_id"][2:len(group.index)]
+                    start = group.index[0] + 2
+                    end = group.index[-1]
+                    result["user_id"] = group.loc[start:end,"user_id"]
+                    result["lat"] = group.loc[start:end,"lat"]
+                    result["lon"] = group.loc[start:end,"lon"]
+                    #print(result.info(),length,feature_arr.shape)
+                    result["speed_sec"] = feature_arr[:,0]
+                    result["acc_sec"] = feature_arr[:,1]
+                    result["std_speed"] = feature_arr[:,2]
+                    result["avg_speed"] = feature_arr[:,3]
+                    result["mean_acc"] = feature_arr[:,4]
+                    result["std_acc"] = feature_arr[:,5]
+                    result["date"] = group.loc[start:end,"date"]
+                    result["time"] = group.loc[start:end,"time"]
+                    result["label"] = util.switch_mode(group.loc[start,"label"])
+                    result["seg_label"] = user_id +" " + str(group.loc[start,"label_count"])
+                    #一组label最终结果dataframe
+                    result_df = result_df.append(result)
 
+                result_df.index = range(0,result_df.shape[0])
+                #result_df.to_csv(datadir + user_id + "/user_features.csv", index=False)
+                result_df.to_csv(datadir + user_id +"/user_features_interval_"+str(interval) +".csv",index=False,mode="w+")
+                user_data_file.close()
 
     @staticmethod
     def caculate_feature_max_min():
@@ -464,68 +470,89 @@ class Data:
 
         valiable_user_data.close()
 
+    #离散化
     @staticmethod
-    def discretization():
+    def discretization(interval_list):
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        out_path = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/"
         feature_num = 10
         valiable_user_data = open("./data/have_label_user.txt", "r")
         user_list = valiable_user_data.readlines()
-        col_name = ["speed_sec", "acc_sec", "std_speed", "avg_speed", "mean_acc", "max_or_min", "label"]
+        #col_name = ["speed_sec", "acc_sec", "std_speed", "avg_speed", "mean_acc", "max_or_min", "label"]
         #所有数据
-        users_df = pd.DataFrame()
+
         # status = open(datadir+"status.csv","w+")
+        for interval in interval_list:
+            print("处理%d" %(interval))
+            users_df = pd.DataFrame()
+            for user in user_list:
+                user_id = user[0:3]
+                # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
+                # user_features_max_min_file = open(user_features_max_min_name,"r")
+                # # 原始数据
+                # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
+                # max_min_df = max_min_df.append(raw_data_df)
+                #
+                # user_features_max_min_file.close()
+                user_feature_file_name = datadir + user_id +"/user_features_interval_" + str(interval)+".csv"
+                user_feature_file = open(user_feature_file_name,"r")
+                raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
+                users_df = users_df.append(raw_data_df)
 
-        for user in user_list:
-            user_id = user[0:3]
-            # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
-            # user_features_max_min_file = open(user_features_max_min_name,"r")
-            # # 原始数据
-            # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
-            # max_min_df = max_min_df.append(raw_data_df)
+            users_df.reset_index(drop=True)
+            # print("离散化")
             #
-            # user_features_max_min_file.close()
-            user_feature_file_name = datadir + user_id +"/user_features.csv"
-            user_feature_file = open(user_feature_file_name,"r")
-            raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
-            users_df = users_df.append(raw_data_df)
+            # file = open(out_path+"status"+str(interval)+".txt",mode="w+")
+            # file.write("interval_%d \n"%(interval))
+            # for i in [0,0.95,0.96,0.97,0.98,0.99]:
+            #     file.write("%s %f  %f\n" % (param.SPEED_SEC,i,users_df[param.SPEED_SEC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.AVG_SPEED,i,users_df[param.AVG_SPEED].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.STD_SPEED,i,users_df[param.STD_SPEED].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.ACC_SEC,i,users_df[param.ACC_SEC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.MEAN_ACC,i,users_df[param.MEAN_ACC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.STD_ACC,i,users_df[param.STD_ACC].quantile(i)))
+            #     file.write("\n")
+            #
+            # file.close()
+            speed_sec = pd.DataFrame(Data.equal_width(users_df["speed_sec"],width))
+            acc_sec = pd.DataFrame(Data.equal_width(users_df["acc_sec"],width))
+            avg_speed = pd.DataFrame(Data.equal_width(users_df["avg_speed"],width))
+            std_speed = pd.DataFrame(Data.equal_width(users_df["std_speed"],width))
+            mean_acc = pd.DataFrame(Data.equal_width(users_df["mean_acc"],width))
+            std_acc = pd.DataFrame(Data.equal_width(users_df["std_acc"],width))
 
-        users_df.reset_index(drop=True)
-        print(users_df.info())
+            print("连接矩阵")
+            #features_en = np.concatenate((speed_sec,avg_speed,std_speed,acc_sec,mean_acc,std_acc),axis=1)
+            result_df = pd.concat([speed_sec,avg_speed,std_speed,acc_sec,mean_acc,std_acc],axis=1)
 
-        speed_sec = Data.equal_width(users_df["speed_sec"],width)
-        acc_sec = Data.equal_width(users_df["acc_sec"],width)
-        avg_speed = Data.equal_width(users_df["avg_speed"],width)
-        std_speed = Data.equal_width(users_df["std_speed"],width)
-        mean_acc = Data.equal_width(users_df["mean_acc"],width)
+            #result_df = pd.DataFrame(features_en)
+            result_df["label"] = users_df["label"].values
+            result_df["seg_label"] = users_df["seg_label"].values
+            #col_name = result_df.columns.tolist()
+            #col_name.insert(col_name.index(0),"user_id")
+            #result_df.reindex(columns=col_name)
+            result_df["user_id"] = users_df["user_id"].values
+            #result_df    columns =[userid(1),speed_sec(width),avg_speed(width),std_speed(width),acc_sec(width),mean_acc(width),label(1),seg_label(1)]
 
-        features_en = np.concatenate((speed_sec,avg_speed,std_speed,acc_sec,mean_acc),axis=1)
+            #result_file = open(datadir+"user_features_data_en.csv",mode="w+")
+            result_df.to_csv(out_path+"user_features_data_en_1_interval_"+str(interval)+".csv",mode="w+",header=True,index=False)
 
-        result_df = pd.DataFrame(features_en)
-        result_df["label"] = users_df["label"].values
-        result_df["seg_label"] = users_df["seg_label"].values
-        #col_name = result_df.columns.tolist()
-        #col_name.insert(col_name.index(0),"user_id")
-        #result_df.reindex(columns=col_name)
-        result_df["user_id"] = users_df["user_id"].values
-        #result_df    columns =[userid(1),speed_sec(width),avg_speed(width),std_speed(width),acc_sec(width),mean_acc(width),label(1),seg_label(1)]
+            valiable_user_data.close()
 
-        #result_file = open(datadir+"user_features_data_en.csv",mode="w+")
-        result_df.to_csv(datadir+"user_features_data_en_1.csv",mode="w+",header=True,index=False)
-
-        valiable_user_data.close()
-
+    #盒状过滤
     @staticmethod
     def filter_box_quantile(x,k):
         print(x.name)
         #不同的特征不同过滤
         min = 0
         max = 0
-        if x.name == FeatureName.SPEED_SEC.value or x.name == FeatureName.AVG_SPEED.value or x.name == FeatureName.STD_SPEED.value:
+        if x.name == FeatureName.SPEED_SEC.value or x.name == FeatureName.AVG_SPEED.value \
+                or x.name == FeatureName.STD_SPEED.value or x.name == FeatureName.MEAN_ACC.value  or x.name == FeatureName.STD_ACC.value:
             min = x.quantile(0)
-            max = x.quantile(0.95)
-        elif x.name == FeatureName.ACC_SEC.value or x.name == FeatureName.MEAN_ACC.value:
+            max = x.quantile(0.99)
+        elif x.name == FeatureName.ACC_SEC.value :
             min = x.quantile(0.01)
-            max = x.quantile(0.95)
+            max = x.quantile(0.99)
         n = len(x.index)
         y = np.array(x.values)
 
@@ -543,6 +570,7 @@ class Data:
 
         return series_y
 
+    #等宽离散
     @staticmethod
     def equal_width(x,width):
         x = Data.filter_box_quantile(x,10)
@@ -559,11 +587,12 @@ class Data:
 
         return x_result
 
+    #制作npy文件
     @staticmethod
-    def create_npy():
+    def create_npy(interval):
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
-        self_data_dir = "./data/transportation_feature_en_1/"
-        user_data_file_name = datadir + "user_features_data_en_1.csv"
+        self_data_dir = "./data/transportation_feature_en_1_interval_2/"
+        user_data_file_name = datadir + "user_features_data_en_1_interval_"+str(interval)+".csv"
         user_data_file = open(user_data_file_name, "r")
         user_data_df = pd.DataFrame(pd.read_csv(user_data_file))
         classes = 4
@@ -589,7 +618,6 @@ class Data:
             del index_df
             del seg_label_arr
             np.save(mode_file_name,features_arr)
-            del features_arr
 
 
 
@@ -599,6 +627,7 @@ class Data:
         #data_classes_4_groups = user_data_df_classes_4.groupby(by="label")
         #for name,group in data_classes_4_groups:
 
+    #切割序列为指定长度
     @staticmethod
     def slice_seq(x,index,exp_seq_len):
         #index 第一维是索引，第二维是长度
@@ -643,10 +672,294 @@ class Data:
                 count += 1
         return (new_data,new_index)
 
+    #扩展数据  将原始seq打乱成新数据
+    @staticmethod
+    def expand_data_npy(classes,len_features):
+        data_path  = "./data/transportation_feature_en_1_interval_1&2/"
+        out_data_path = "./data/transportation_feature_en_1_interval_1&2_expand_all/"
+        data_file_name_exp = data_path + "transportation_mode"
+        for i in range(classes):
+            print("处理" + str(i))
+            # data_file  = data_file_name +str(i) +".npy"
+            index_df = pd.DataFrame(pd.read_csv(data_file_name_exp + "_" + str(i) + "_seg_index.csv"))
+            features_arr = np.load(data_file_name_exp + str(i) + ".npy")
+            features_arr = features_arr[:, 0:len_features]
+            index_arr = np.array(index_df.iloc[:, [1, 2]].T)
+            # index shape = [2,总个数]
+            # 第一维是第几段轨迹 第二维是在固定长度为exp_seq_len中的实际长度
+            # data shape =[seq_nums,exp_seq_len,feature_len]
+            features_arr_shuffle = np.zeros(shape=features_arr.shape,dtype=features_arr.dtype)
+
+            start = 0
+            end = 0
+            for k in range(index_arr.shape[1] -1):
+                perm = np.random.permutation(range(index_arr[0][k],index_arr[0][k+1]))
+                end = start + index_arr[1][k]
+                features_arr_shuffle[start:end,:] = features_arr[perm,:]
+                start = end
+            #连接新的矩阵
+            features_arr_all = np.concatenate((features_arr,features_arr_shuffle),axis=0)
+            #构造新的index
+            index_df_expand = index_df.copy()
+            index_df_expand["seg_label_index"] = index_df["seg_label_index"] + features_arr.shape[0]
+            index_df_all = index_df.append(index_df_expand)
+
+            features_arr_file_name = out_data_path + "transportation_mode" + str(i) +".npy"
+            index_arr_file_name = out_data_path + "transportation_mode_" + str(i) + "_seg_index.csv"
+            np.save(features_arr_file_name,features_arr_all)
+            index_df_all.to_csv(index_arr_file_name,index = False)
+
+    #制作所有数据的npz文件  包括原始数据与混淆数据
+    @staticmethod
+    def create_all_data_npy(classes,len_features):
+        conf = config.Config("data/config.json")
+        log_path = "./logdir/transportation_feature_en_1_expand/"
+        data_path = "./data/transportation_feature_en_1_expand/"
+        # 分训练集与测试集 验证集 8：1：1
+        train_data_all = None
+        train_label_all = None
+        train_early_all = None
+        valid_data_all = None
+        valid_label_all = None
+        valid_early_all = None
+        test_data_all = None
+        test_label_all = None
+        test_early_all = None
+        features_arr_list = []
+        index_arr_list = []
+        label_arr_list = []
+        data_file_name_exp = data_path + "transportation_mode"
+        for i in range(classes):
+            print("加载" + str(i))
+            # data_file  = data_file_name +str(i) +".npy"
+            index_df = pd.DataFrame(pd.read_csv(data_file_name_exp + "_" + str(i) + "_seg_index.csv"))
+            features_arr = np.load(data_file_name_exp + str(i) + ".npy")
+            features_arr = features_arr[:, 0:len_features]
+            index_arr = np.array(index_df.iloc[:, [1, 2]].T)
+            # index shape = [2,总个数]
+            # 第一维是第几段轨迹 第二维是在固定长度为exp_seq_len中的实际长度
+            # data shape =[seq_nums,exp_seq_len,feature_len]   切出相等的数据长度 不足的padding
+            (data, index_arr) = Data.slice_seq(features_arr, index_arr, conf.exp_seq_len)
+            # 切割后删除features_arr index
+            del features_arr
+            del index_df
+            label_arr = np.zeros(shape=[index_arr.shape[1]], dtype=np.int32)
+            label_arr[:] = i
+            # features_arr_list.append(data)
+            # index_arr_list.append(index)
+            # label_arr_list.append(label)
+            # 划分训练集，验证集，测试集
+            print("划分训练集，验证集，测试集   " + str(i))
+            seq_nums = index_arr.shape[1]
+            # 控制变量
+            np.random.seed(2)
+            index_perm = np.random.permutation(range(seq_nums))
+            train_count = int(np.floor(seq_nums * 0.8))
+            valid_count = int(np.floor(seq_nums * 0.9))
+            test_count = seq_nums
+            train_index = index_perm[0:train_count]
+            valid_index = index_perm[train_count + 1:valid_count]
+            test_index = index_perm[valid_count + 1:seq_nums]
+
+            # train_set valid_set test_set
+            train_data = data[train_index, :, :]
+            train_label = label_arr[train_index]
+            train_early = index_arr[1, train_index]
+
+            valid_data = data[valid_index, :, :]
+            valid_label = label_arr[valid_index]
+            valid_early = index_arr[1, valid_index]
+
+            test_data = data[test_index, :, :]
+            test_label = label_arr[test_index]
+            test_early = index_arr[1, test_index]
+
+            # 删除读取到的data.
+            del data
+            del label_arr
+            del index_arr
+
+            if train_data_all is None:
+                train_data_all = train_data
+                train_label_all = train_label
+                train_early_all = train_early
+
+                valid_data_all = valid_data
+                valid_label_all = valid_label
+                valid_early_all = valid_early
+
+                test_data_all = test_data
+                test_label_all = test_label
+                test_early_all = test_early
+            else:
+                train_data_all = np.concatenate((train_data_all, train_data), axis=0)
+                train_label_all = np.concatenate((train_label_all, train_label), axis=0)
+                train_early_all = np.concatenate((train_early_all, train_early), axis=0)
+
+                valid_data_all = np.concatenate((valid_data_all, valid_data), axis=0)
+                valid_label_all = np.concatenate((valid_label_all, valid_label), axis=0)
+                valid_early_all = np.concatenate((valid_early_all, valid_early), axis=0)
+
+                test_data_all = np.concatenate((test_data_all, test_data), axis=0)
+                test_label_all = np.concatenate((test_label_all, test_label), axis=0)
+                test_early_all = np.concatenate((test_early_all, test_early), axis=0)
+        # 打乱数据
+        np.random.seed(1)
+        train_perm = np.random.permutation(range(train_early_all.shape[0]))
+        np.random.seed(1)
+        valid_perm = np.random.permutation(range(valid_early_all.shape[0]))
+        np.random.seed(1)
+        test_perm = np.random.permutation(range(test_early_all.shape[0]))
+
+        # shape=[序列长度，总个数，特征长度]   TimeMajor
+        train_data_all = np.transpose(train_data_all, [1, 0, 2])
+        valid_data_all = np.transpose(valid_data_all, [1, 0, 2])
+        test_data_all = np.transpose(test_data_all, [1, 0, 2])
+
+        train_data_all = train_data_all[:, train_perm, :]
+        train_label_all = train_label_all[train_perm]
+        train_early_all = train_early_all[train_perm]
+
+        valid_data_all = valid_data_all[:, valid_perm, :]
+        valid_label_all = valid_label_all[valid_perm]
+        valid_early_all = valid_early_all[valid_perm]
+
+        test_data_all = test_data_all[:, test_perm, :]
+        test_label_all = test_label_all[test_perm]
+        test_early_all = test_early_all[test_perm]
+
+        train_data_file = data_path + "train_data_set.npz"
+        np.savez(train_data_file,train_data = train_data_all,train_label = train_label_all,train_early = train_early_all)
+        del train_data_all
+        del train_label_all
+        del train_early_all
+
+        valid_data_file = data_path + "valid_data_set.npz"
+        np.savez(valid_data_file, valid_data=valid_data_all, valid_label=valid_label_all, valid_early=valid_early_all)
+        del valid_data_all
+        del valid_label_all
+        del valid_early_all
+        test_data_file = data_path + "test_data_set.npz"
+        np.savez(test_data_file, test_data=test_data_all, test_label=test_label_all, test_early=test_early_all)
+
+
+    #连接数据
+    @staticmethod
+    def concat_data(classes,len_features):
+        data_path1 = "./data/transportation_feature_en_1/"
+        data_path2 = "./data/transportation_feature_en_1_interval_2/"
+        out_data_path = "./data/transportation_feature_en_1_interval_1&2/"
+        data_file_name_exp1 = data_path1 + "transportation_mode"
+        data_file_name_exp2 = data_path2 + "transportation_mode"
+        for i in range(1,4):
+            index_df1 = pd.DataFrame(pd.read_csv(data_file_name_exp1 + "_" + str(i) + "_seg_index.csv"))
+            features_arr1 = np.load(data_file_name_exp1 + str(i) + ".npy")
+            features_arr1 = features_arr1[:, 0:len_features]
+            #index_arr1 = np.array(index_df1.iloc[:, [1, 2]].T)
+
+            index_df2 = pd.DataFrame(pd.read_csv(data_file_name_exp2 + "_" + str(i) + "_seg_index.csv"))
+            features_arr2 = np.load(data_file_name_exp2 + str(i) + ".npy")
+            features_arr2 = features_arr2[:, 0:len_features]
+            #index_arr2 = np.array(index_df2.iloc[:, [1, 2]].T)
+
+            index_df2["seg_label_index"] = index_df2["seg_label_index"] + features_arr1.shape[0]
+            index_df_all = index_df1.append(index_df2)
+            index_file_name = out_data_path + "transportation_mode_" + str(i) +"_seg_index.csv"
+            index_df_all.to_csv(index_file_name, mode="w+", index=False)
+
+            features_arr_all = np.concatenate((features_arr1,features_arr2),axis=0)
+            del features_arr1
+            del features_arr2
+            mode_file_name = out_data_path + "transportation_mode"+str(i)+".npy"
+            np.save(mode_file_name,features_arr_all)
+
+    @staticmethod
+    def _int64_feature(value):
+        return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+    @staticmethod
+    def _bytes_feature(value):
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    @staticmethod
+    def _float_feature(value):
+        return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+    #制作tfrecord
+    @staticmethod
+    def make_tfrecord(interval_list):
+        data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/"
+        for interval in interval_list:
+            print("处理"+str(interval))
+            # train_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_train.tfrecords")
+            # valid_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_valid.tfrecords")
+            # test_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_test.tfrecords")
+            data_file_name = data_dir + "user_features_data_en_1_interval_" + str(interval) + ".csv"
+            data_file = open(data_file_name,mode="r")
+            data_df = pd.DataFrame(pd.read_csv(data_file))
+
+            data_label_groups = data_df.groupby(by="label")
+            k = 0
+            for label_name,label_group in data_label_groups:
+
+                if k < 6:
+                    k+=1
+                    continue
+                # if k > 5:
+                #     break
+                print("处理label"+str(label_name))
+                train_writer = tf.python_io.TFRecordWriter(
+                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_train.tfrecords")
+                valid_writer = tf.python_io.TFRecordWriter(
+                    "G:/all_data/tfrecords/interval_" + str(interval) +"_label_"+str(label_name)+ "_valid.tfrecords")
+                test_writer = tf.python_io.TFRecordWriter(
+                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_test.tfrecords")
+                seg_groups = label_group.groupby(by="seg_label")
+                count = 0
+                for seg_name,seg_group in seg_groups:
+                    #seg_group 存放每段的轨迹点的特征，每个特征长30
+                    speed_sec = np.array(seg_group.iloc[:,0:1*width])
+                    avg_speed = np.array(seg_group.iloc[:1*width:2*width])
+                    std_speed = np.array(seg_group.iloc[:,2*width:3*width])
+                    acc_sec = np.array(seg_group.iloc[:, 3 * width:4 * width])
+                    mean_acc = np.array(seg_group.iloc[:, 4 * width:5 * width])
+                    std_acc = np.array(seg_group.iloc[:, 5 * width:6 * width])
+                    feature = {
+                        FeatureName.SPEED_SEC.value : Data._bytes_feature(speed_sec.tobytes()),
+                        FeatureName.AVG_SPEED.value : Data._bytes_feature(avg_speed.tobytes()),
+                        FeatureName.STD_SPEED.value : Data._bytes_feature(std_speed.tobytes()),
+                        FeatureName.ACC_SEC.value   : Data._bytes_feature(acc_sec.tobytes()),
+                        FeatureName.MEAN_ACC.value  : Data._bytes_feature(mean_acc.tobytes()),
+                        FeatureName.STD_ACC.value   : Data._bytes_feature(std_acc.tobytes()),
+                        "label":Data._int64_feature(label_name)
+                    }
+                    example = tf.train.Example(features = tf.train.Features(feature = feature))
+
+                    t = count % 10
+                    if t >=0 and t <8 :
+                        train_writer.write(example.SerializeToString())
+                    elif t == 8:
+                        valid_writer.write(example.SerializeToString())
+                    else:
+                        test_writer.write(example.SerializeToString())
+
+                    count += 1
+                k+=1
+                train_writer.close()
+                valid_writer.close()
+                test_writer.close()
+                sys.stdout.flush()
+
+
+
 if __name__ == "__main__":
-    #Data.sovle_row_data()
-    #Data.caculate_feature()
+    #Data.sovle_row_data(5)
+    #Data.caculate_feature([4,5])
     #Data.caculate_feature_max_min()
     #Data.caculate_all_max_min()
-    Data.discretization()
-    Data.create_npy()
+    #Data.discretization([4,5])
+    #Data.create_npy(2)
+    #Data.expand_data_npy(4,100)
+    #Data.create_all_data_npy(4,100)
+    #Data.concat_data(4,100)
+    Data.make_tfrecord([2])

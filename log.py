@@ -22,7 +22,7 @@ class Log(object):
         #self.train_log_file.write("iteration, trainLoss,trainAcc\n")
 
     def summary_log(self,data,batch_iter):
-        (cost_train, acc_train, cost_test, acc_test, cost_val, acc_val) = data
+        (cost_train, acc_train,  cost_val, acc_val,cost_test, acc_test) = data
         self.summary_log_file.write("{0}, {1:0.3f}, {2:0.3f}, {3:0.3f}, {4:0.3f}, {5:0.3f}, {6:0.3f}\n".format(batch_iter, cost_train, cost_val, cost_test, acc_train, acc_val, acc_test))
         self.summary_log_file.flush()
 

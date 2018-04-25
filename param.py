@@ -1,6 +1,15 @@
 from enum import Enum
 
-width = 20
+width = 30
+SPEED_SEC = "speed_sec"
+ACC_SEC = "acc_sec"
+AVG_SPEED = "avg_speed"
+STD_SPEED = "std_speed"
+MEAN_ACC = "mean_acc"
+STD_ACC = "std_acc"
+LABEL = "label"
+
+
 
 class RNNType(Enum):
     LSTM = 1 # LSTM unidirectional
@@ -20,3 +29,4 @@ class FeatureName(Enum):
     AVG_SPEED = "avg_speed"
     STD_SPEED = "std_speed"
     MEAN_ACC = "mean_acc"
+    STD_ACC = "std_acc"

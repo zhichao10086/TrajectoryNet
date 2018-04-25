@@ -1,4 +1,6 @@
 from math import radians, cos, sin, asin, sqrt
+import  os
+
 
 def jwd2dis(lat1,lon1,lat2,lon2):
     lat1,lon1,lat2,lon2 = map(radians,[lat1,lon1,lat2,lon2])
@@ -47,3 +49,32 @@ def switch_mode(str):
     else:
         print(str)
         return "11"
+
+def rename_file():
+
+    data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+
+    valiable_user_data = open("./data/have_label_user.txt", "r")
+    user_list = valiable_user_data.readlines()
+    for i in user_list[1:]:
+        user_id = i[0:3]
+        data_txt_name = data_dir + user_id + "/userdata.csv"
+        features_name = data_dir+user_id + "/user_features.csv"
+        new_data_name = data_dir + user_id + "/userdata_interval_1.csv"
+        new_features_name = data_dir + user_id + "/user_features_interval_1.csv"
+        os.rename(data_txt_name,new_data_name)
+        os.rename(features_name,new_features_name)
+
+def delete_file():
+    data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+
+    valiable_user_data = open("./data/have_label_user.txt", "r")
+    user_list = valiable_user_data.readlines()
+    for i in user_list:
+        user_id = i[0:3]
+        data_txt_name = data_dir + user_id + "/user_features_interval_2.csv"
+
+        os.remove(data_txt_name)
+
+if __name__ == "__main__":
+    delete_file()

@@ -1,7 +1,7 @@
 import config
 import tensorflow as tf
 from customized_gru import CustomizedGRU as GRUCell
-#from tensorflow.python.ops.rnn_cell import GRUCell
+from tensorflow.python.ops.rnn_cell import GRUCell as BasicGRUCell
 import tensorflow.contrib as tf_ct
 from tensorflow.contrib.rnn import BasicLSTMCell
 from param import RNNType
@@ -224,6 +224,7 @@ class Model(object):
                 [BasicLSTMCell(self.hidden_size,activation=self.activation) for _ in range(self.num_layers)])
             return (cell_fw,cell_bw)
 
+
     #初始化cell的状态
     def set_initial_states(self, cell):
         if self.rnn_type == RNNType.GRU or self.rnn_type == RNNType.LSTM:
@@ -235,7 +236,19 @@ class Model(object):
 
     def get_rnn_outputs(self,cell):
         if self.rnn_type == RNNType.LSTM or self.rnn_type == RNNType.GRU:
-            pass
+            self._outputs,self._state = tf.nn.dynamic_rnn(cell,self._input_data,sequence_length=self._early_stop,
+                                              initial_state=self.initial_state,
+                                              time_major=True,dtype=tf.float32)
+            if self.net_type == NetType.RNN_NVN:
+                pass
+            elif self.net_type == NetType.RNN_NV1:
+                if self.rnn_type == RNNType.LSTM :
+                    state_h = self._state[-1]
+                    self._valid_output = state_h[-1]
+                elif self.rnn_type == RNNType.GRU:
+                    self._valid_output = self._state[-1]
+
+
         elif self.rnn_type == RNNType.LSTM_b or self.rnn_type == RNNType.GRU_b:
             (cell_fw, cell_bw) = cell
             self._outputs, self._state = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, self._input_data,

@@ -15,11 +15,11 @@ from data_funs import Data
 import param
 
 conf = config.Config("data/config.json")
-log_path = "./logdir/transportation_feature_en_1/"
-data_path = "./data/transportation_feature_en_1/"
+log_path = "./logdir/transportation_feature_en_1_interval_1&2_expand_all/"
+data_path = "./data/transportation_feature_en_1_interval_1&2_expand_all/"
 task = conf.task
 LOGGER = Log(log_path)
-len_features = conf.num_features * param.width
+len_features = conf.num_features * 20
 
 def loadData_rnn_nvn():
     x_file = 'data/x_mobility.npy'
@@ -113,11 +113,22 @@ def loadData_rnn_nvn():
     return (train_data,test_data,val_data,train_config,test_config,valid_config)
 
 def load_data_rnn_nv1(classes):
+    # 分训练集与测试集 验证集 8：1：1
+    train_data_all = None
+    train_label_all = None
+    train_early_all = None
+    valid_data_all = None
+    valid_label_all = None
+    valid_early_all = None
+    test_data_all = None
+    test_label_all = None
+    test_early_all = None
     features_arr_list = []
     index_arr_list = []
     label_arr_list = []
     data_file_name_exp = data_path +"transportation_mode"
     for i in range(classes):
+        print("加载" + str(i))
         # data_file  = data_file_name +str(i) +".npy"
         index_df = pd.DataFrame(pd.read_csv(data_file_name_exp +"_"+ str(i) + "_seg_index.csv"))
         features_arr = np.load(data_file_name_exp + str(i) + ".npy")
@@ -125,42 +136,20 @@ def load_data_rnn_nv1(classes):
         index_arr = np.array(index_df.iloc[:, [1, 2]].T)
         # index shape = [2,总个数]
         # 第一维是第几段轨迹 第二维是在固定长度为exp_seq_len中的实际长度
-        # data shape =[seq_nums,exp_seq_len,feature_len]
-
-        #混淆数据  试行********************************
-        feature_perm = np.random.permutation(range(features_arr.shape[0]))
-        features_arr_shuffle = features_arr[feature_perm,:]
-        features_arr = np.concatenate((features_arr,features_arr_shuffle),axis=0)
-        index_arr = np.concatenate((index_arr,index_arr),axis=1)
-        #完毕 *****************************************
-
-        (data, index) = Data.slice_seq(features_arr, index_arr, conf.exp_seq_len)
-        label = np.zeros(shape=[index.shape[1]], dtype=np.int32)
-        label[:] = i
-        features_arr_list.append(data)
-        index_arr_list.append(index)
-        label_arr_list.append(label)
-
-    # 分训练集与测试集 验证集 8：1：1
-    train_data_all = None
-    train_label_all = None
-    train_early_all = None
-
-    valid_data_all = None
-    valid_label_all = None
-    valid_early_all = None
-
-    test_data_all = None
-    test_label_all = None
-    test_early_all = None
-
-    for i in range(classes):
-        index_arr = index_arr_list[i]
-        features_arr = features_arr_list[i]
-        label_arr = label_arr_list[i]
-        # 样本总数
+        # data shape =[seq_nums,exp_seq_len,feature_len]   切出相等的数据长度 不足的padding
+        (data, index_arr) = Data.slice_seq(features_arr, index_arr, conf.exp_seq_len)
+        #切割后删除features_arr index
+        del features_arr
+        del index_df
+        label_arr = np.zeros(shape=[index_arr.shape[1]], dtype=np.int32)
+        label_arr[:] = i
+        # features_arr_list.append(data)
+        # index_arr_list.append(index)
+        # label_arr_list.append(label)
+        #划分训练集，验证集，测试集
+        print("划分训练集，验证集，测试集   " + str(i))
         seq_nums = index_arr.shape[1]
-        #控制变量
+        # 控制变量
         np.random.seed(2)
         index_perm = np.random.permutation(range(seq_nums))
         train_count = int(np.floor(seq_nums * 0.8))
@@ -171,17 +160,22 @@ def load_data_rnn_nv1(classes):
         test_index = index_perm[valid_count + 1:seq_nums]
 
         # train_set valid_set test_set
-        train_data = features_arr[train_index, :, :]
+        train_data = data[train_index, :, :]
         train_label = label_arr[train_index]
         train_early = index_arr[1, train_index]
 
-        valid_data = features_arr[valid_index, :, :]
+        valid_data = data[valid_index, :, :]
         valid_label = label_arr[valid_index]
         valid_early = index_arr[1, valid_index]
 
-        test_data = features_arr[test_index, :, :]
+        test_data = data[test_index, :, :]
         test_label = label_arr[test_index]
         test_early = index_arr[1, test_index]
+
+        #删除读取到的data.
+        del data
+        del label_arr
+        del index_arr
 
         if train_data_all is None:
             train_data_all = train_data
@@ -207,11 +201,6 @@ def load_data_rnn_nv1(classes):
             test_data_all = np.concatenate((test_data_all, test_data), axis=0)
             test_label_all = np.concatenate((test_label_all, test_label), axis=0)
             test_early_all = np.concatenate((test_early_all, test_early), axis=0)
-
-    del features_arr_list
-    del label_arr_list
-    del index_arr_list
-
     #打乱数据
     np.random.seed(1)
     train_perm = np.random.permutation(range(train_early_all.shape[0]))
@@ -220,14 +209,14 @@ def load_data_rnn_nv1(classes):
     np.random.seed(1)
     test_perm = np.random.permutation(range(test_early_all.shape[0]))
 
-    #shape=[序列长度，总个数，特征长度]
+    #shape=[序列长度，总个数，特征长度]   TimeMajor
     train_data_all = np.transpose(train_data_all, [1, 0, 2])
     valid_data_all = np.transpose(valid_data_all, [1, 0, 2])
     test_data_all = np.transpose(test_data_all, [1, 0, 2])
 
-    train_data_all = train_data_all[:, train_perm, :]
-    train_label_all = train_label_all[train_perm]
-    train_early_all = train_early_all[train_perm]
+    # train_data_all = train_data_all[:, train_perm, :]
+    # train_label_all = train_label_all[train_perm]
+    # train_early_all = train_early_all[train_perm]
 
     valid_data_all = valid_data_all[:, valid_perm, :]
     valid_label_all = valid_label_all[valid_perm]
@@ -241,6 +230,125 @@ def load_data_rnn_nv1(classes):
     valid_set = (valid_data_all, valid_label_all, valid_early_all)
     test_set = (test_data_all, test_label_all, test_early_all)
     return train_set,valid_set,test_set
+
+def load_data_rnn_nv1_other(classes):
+    # 分训练集与测试集 验证集 8：1：1
+    train_data_all = None
+    train_label_all = None
+    train_early_all = None
+    valid_data_all = None
+    valid_label_all = None
+    valid_early_all = None
+    test_data_all = None
+    test_label_all = None
+    test_early_all = None
+    data_file_name_exp = data_path + "transportation_mode"
+    for i in range(classes):
+        data = np.load(data_path + "slice_label" + str(i) + "_" + str(conf.exp_seq_len) + ".npy")
+        index_arr = np.load(data_path + "slice_index" + str(i) + ".npy")
+
+        # 切割后删除features_arr index
+        label_arr = np.zeros(shape=[index_arr.shape[1]], dtype=np.int32)
+        label_arr[:] = i
+        # features_arr_list.append(data)
+        # index_arr_list.append(index)
+        # label_arr_list.append(label)
+        # 划分训练集，验证集，测试集
+        print("划分训练集，验证集，测试集   " + str(i))
+        seq_nums = index_arr.shape[1]
+        # 控制变量
+        np.random.seed(2)
+        index_perm = np.random.permutation(range(seq_nums))
+        train_count = int(np.floor(seq_nums * 0.8))
+        valid_count = int(np.floor(seq_nums * 0.9))
+        test_count = seq_nums
+        train_index = index_perm[0:train_count]
+        valid_index = index_perm[train_count + 1:valid_count]
+        test_index = index_perm[valid_count + 1:seq_nums]
+
+        # train_set valid_set test_set
+        train_data = data[train_index, :, :]
+        train_label = label_arr[train_index]
+        train_early = index_arr[1, train_index]
+
+        valid_data = data[valid_index, :, :]
+        valid_label = label_arr[valid_index]
+        valid_early = index_arr[1, valid_index]
+
+        test_data = data[test_index, :, :]
+        test_label = label_arr[test_index]
+        test_early = index_arr[1, test_index]
+
+        # 删除读取到的data.
+        del data
+        del label_arr
+        del index_arr
+
+        if train_data_all is None:
+            train_data_all = train_data
+            train_label_all = train_label
+            train_early_all = train_early
+
+            valid_data_all = valid_data
+            valid_label_all = valid_label
+            valid_early_all = valid_early
+
+            test_data_all = test_data
+            test_label_all = test_label
+            test_early_all = test_early
+        else:
+            train_data_all = np.concatenate((train_data_all, train_data), axis=0)
+            train_label_all = np.concatenate((train_label_all, train_label), axis=0)
+            train_early_all = np.concatenate((train_early_all, train_early), axis=0)
+
+            valid_data_all = np.concatenate((valid_data_all, valid_data), axis=0)
+            valid_label_all = np.concatenate((valid_label_all, valid_label), axis=0)
+            valid_early_all = np.concatenate((valid_early_all, valid_early), axis=0)
+
+            test_data_all = np.concatenate((test_data_all, test_data), axis=0)
+            test_label_all = np.concatenate((test_label_all, test_label), axis=0)
+            test_early_all = np.concatenate((test_early_all, test_early), axis=0)
+    # 打乱数据
+    np.random.seed(1)
+    train_perm = np.random.permutation(range(train_early_all.shape[0]))
+    np.random.seed(1)
+    valid_perm = np.random.permutation(range(valid_early_all.shape[0]))
+    np.random.seed(1)
+    test_perm = np.random.permutation(range(test_early_all.shape[0]))
+
+    # shape=[序列长度，总个数，特征长度]   TimeMajor
+    train_data_all = np.transpose(train_data_all, [1, 0, 2])
+    valid_data_all = np.transpose(valid_data_all, [1, 0, 2])
+    test_data_all = np.transpose(test_data_all, [1, 0, 2])
+
+    # train_data_all = train_data_all[:, train_perm, :]
+    # train_label_all = train_label_all[train_perm]
+    # train_early_all = train_early_all[train_perm]
+
+    valid_data_all = valid_data_all[:, valid_perm, :]
+    valid_label_all = valid_label_all[valid_perm]
+    valid_early_all = valid_early_all[valid_perm]
+
+    test_data_all = test_data_all[:, test_perm, :]
+    test_label_all = test_label_all[test_perm]
+    test_early_all = test_early_all[test_perm]
+
+    train_set = (train_data_all, train_label_all, train_early_all)
+    valid_set = (valid_data_all, valid_label_all, valid_early_all)
+    test_set = (test_data_all, test_label_all, test_early_all)
+    return train_set, valid_set, test_set
+
+#直接读取整个data  noTranspose
+def load_data_rnn_nv1_quick(classes):
+    data_dir = "G:/all_data/"
+    train_data_set_name = data_dir + "train_data_set.npz"
+    valid_data_set_name = data_dir + "valid_data_set.npz"
+    test_data_set_name = data_dir + "test_data_set.npz"
+    train_data_set = np.load(train_data_set_name)
+    valid_data_set = np.load(valid_data_set_name)
+    test_data_set = np.load(test_data_set_name)
+
+    return train_data_set,valid_data_set,test_data_set
 
 def evaluate_model(sess, minibatch):
     # test and validate model
@@ -363,10 +471,30 @@ def run_batch(session, model, data, eval_op, minibatch):
 
 def evaluate_model_all(sess,epoch):
     result_train = run_batch_all(sess, train_model, train_data, tf.no_op(), epoch)
-    result_test = run_batch_all(sess, test_model, test_data, tf.no_op(), epoch)
     result_valid = run_batch_all(sess, valid_model, valid_data, tf.no_op(), epoch)
+    result_test = run_batch_all(sess, test_model, test_data, tf.no_op(), epoch)
 
-    LOGGER.summary_log(result_train+result_test+result_valid,epoch)
+
+    LOGGER.summary_log(result_train+result_valid+result_test,epoch)
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_train[0], result_train[1]))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_valid[0], result_valid[1]))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_test[0], result_test[1]))
+
+    return result_train + result_test + result_valid
+
+def evaluate_model_quick(sess,epoch):
+    print("开始测试训练集")
+    result_train = run_batch_quick(sess, train_model, train_data, tf.no_op(), epoch)
+    print("开始测试验证集")
+    result_valid = run_batch_quick(sess, valid_model, valid_data, tf.no_op(), epoch)
+    print("开始测试测试集")
+    result_test = run_batch_quick(sess, test_model, test_data, tf.no_op(), epoch)
+
+    LOGGER.summary_log(result_train + result_valid + result_test, epoch)
 
     print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
         result_train[0], result_train[1]))
@@ -380,20 +508,25 @@ def evaluate_model_all(sess,epoch):
 def run_batch_all(session,model,data,eval_op,epoch):
     x, y, e_stop = data
     epoch_size = x.shape[1] // model.batch_size
-
-    perm = np.random.permutation(range(e_stop.shape[0]))
-    x = x[:,perm,:]
-    y = y[perm]
-    e_stop = e_stop[perm]
+    shuffle_perm = None
+    if model.is_training:
+        shuffle_perm = np.random.permutation(range(e_stop.shape[0]))
 
 
     # 记录结果
     costs = []
     correct = []
     for batch in range(epoch_size):
-        x_batch = x[:, batch * model.batch_size: (batch + 1) * model.batch_size, :]
-        y_batch = y[batch * model.batch_size: (batch + 1) * model.batch_size]
-        e_batch = e_stop[batch * model.batch_size: (batch + 1) * model.batch_size]
+
+        if model.is_training:
+            batch_perm = shuffle_perm[batch * model.batch_size: (batch + 1) * model.batch_size]
+            x_batch = x[:, batch_perm, :]
+            y_batch = y[batch_perm]
+            e_batch = e_stop[batch_perm]
+        else:
+            x_batch = x[:, batch * model.batch_size: (batch + 1) * model.batch_size, :]
+            y_batch = y[batch * model.batch_size: (batch + 1) * model.batch_size]
+            e_batch = e_stop[batch * model.batch_size: (batch + 1) * model.batch_size]
 
         temp_dict = {model.input_data: x_batch}
         temp_dict.update({model.targets: y_batch})
@@ -411,9 +544,7 @@ def run_batch_all(session,model,data,eval_op,epoch):
             elif model.is_validation:
                 LOGGER.training_log(str(epoch) + "验证集的混淆矩阵")
                 LOGGER.training_log(str(confusion))
-            elif model.is_training:
-                LOGGER.training_log(str(epoch) + "训练集的混淆矩阵")
-                LOGGER.training_log(str(confusion))
+
 
             if model.net_type == NetType.RNN_NVN:
                 # keep results for this minibatch
@@ -433,6 +564,82 @@ def run_batch_all(session,model,data,eval_op,epoch):
                     cost_mean = sum(costs) / float(epoch_size)
                     accuracy_mean = sum(correct) / float(epoch_size)
                     return (cost_mean, accuracy_mean)
+
+def run_batch_quick(session,model,data,eval_op,epoch):
+
+    if model.is_training:
+        x = data["train_data"]
+        y = data["train_label"]
+        e_stop = data["train_early_stop"]
+    elif model.is_validation:
+        x = data["valid_data"]
+        y = data["valid_label"]
+        e_stop = data["valid_early_stop"]
+    else:
+        x = data["test_data"]
+        y = data["test_label"]
+        e_stop = data["test_early_stop"]
+
+    epoch_size = x.shape[0] // model.batch_size
+    shuffle_perm = None
+    if model.is_training:
+        shuffle_perm = np.random.permutation(range(e_stop.shape[0]))
+
+    # 记录结果
+    costs = []
+    correct = []
+    for batch in range(epoch_size):
+
+        if model.is_training:
+            batch_perm = shuffle_perm[batch * model.batch_size: (batch + 1) * model.batch_size]
+            x_batch = x[batch_perm,:, :]
+            y_batch = y[batch_perm]
+            e_batch = e_stop[batch_perm]
+        else:
+            x_batch = x[batch * model.batch_size: (batch + 1) * model.batch_size,: , :]
+            y_batch = y[batch * model.batch_size: (batch + 1) * model.batch_size]
+            e_batch = e_stop[batch * model.batch_size: (batch + 1) * model.batch_size]
+
+        x_batch = np.transpose(x_batch,[1,0,2])
+
+        temp_dict = {model.input_data: x_batch}
+        temp_dict.update({model.targets: y_batch})
+        temp_dict.update({model.early_stop: e_batch})
+
+        if model.is_training and eval_op == model.train_op:
+            _ = session.run([eval_op], feed_dict=temp_dict)
+
+        else:
+            cost, confusion, accuracy, _ = session.run([model.cost, model.confusion_matrix, model.accuracy, eval_op],
+                                                       feed_dict=temp_dict)
+
+            if model.is_test:
+                LOGGER.training_log(str(epoch) + "测试集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
+            elif model.is_validation:
+                LOGGER.training_log(str(epoch) + "验证集的混淆矩阵")
+                LOGGER.training_log(str(confusion))
+
+            if model.net_type == NetType.RNN_NVN:
+                # keep results for this minibatch
+                costs.append(cost)
+                correct.append(accuracy * sum(e_batch))
+
+                # 计算平均精度与损失
+                if batch == epoch_size - 1:
+                    accuracy = sum(correct) / float(sum(e_stop))
+                    return (sum(costs) / float(epoch_size), accuracy)
+            elif model.net_type == NetType.RNN_NV1:
+                costs.append(cost)
+                correct.append(accuracy)
+
+                # 计算平均精度与损失
+                if batch == epoch_size - 1:
+                    cost_mean = sum(costs) / float(epoch_size)
+                    accuracy_mean = sum(correct) / float(epoch_size)
+                    return (cost_mean, accuracy_mean)
+
+    print("训练完毕  " + str(epoch))
 
 def rnn_nvn_model():
     #1 处理数据
@@ -492,31 +699,39 @@ def rnn_nvn_model():
         if conf.checkpoint:
             save_path = saver.save(sess,data_path+task)
 
-def rnn_nv1_model():
+def rnn_nv1_model(is_quick):
     global train_data
     global test_data
     global valid_data
-    train_data,valid_data,test_data=load_data_rnn_nv1(conf.num_classes)
+    train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
+    print("数据加载完毕......")
     train_conf = None
     valid_conf = None
     test_conf = None
 
     if conf.rnn_type == "lstm_b":
-
         train_conf = TrainingConfig(True,False,False,conf.batch_size,len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
-        valid_conf = TrainingConfig(False,True,False,len(valid_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
-        test_conf = TrainingConfig(False,False,True,len(test_data[2]),len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
+        valid_conf = TrainingConfig(False,True,False,conf.batch_size,len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
+        test_conf = TrainingConfig(False,False,True,conf.batch_size,len_features,net_type=NetType.RNN_NV1,rnn_type=RNNType.LSTM_b)
     elif conf.rnn_type == "gru_b":
         train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
                                     rnn_type=RNNType.GRU_b)
-        valid_conf = TrainingConfig(False, True, False, len(valid_data[2]), len_features, net_type=NetType.RNN_NV1,
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
                                     rnn_type=RNNType.GRU_b)
-        test_conf = TrainingConfig(False, False, True, len(test_data[2]), len_features, net_type=NetType.RNN_NV1,
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
                                    rnn_type=RNNType.GRU_b)
+    elif conf.rnn_type == "gru":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU)
+
 
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
-    #config.gpu_options.per_process_gpu_memory_fraction = 0.1  # 占用GPU90%的显存
+    #config.gpu_options.per_process_gpu_memory_fraction = 0.7  # 占用GPU90%的显存
 
     minibatch = 0
     with tf.Session(config=config) as sess:
@@ -549,19 +764,147 @@ def rnn_nv1_model():
         LOGGER.training_log(str(conf.__dict__))
         LOGGER.training_log("activation = tanh")
 
-        for i in range(conf.num_epochs):
-            print("第 {0}次epoch".format(i))
-            #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
-            run_batch_all(sess,train_model,train_data,train_model.train_op,i)
-            evaluate_model_all(sess,i)
+        if is_quick:
+
+            for i in range(conf.num_epochs):
+                print("第 {0}次epoch".format(i))
+                #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
+                run_batch_quick(sess,train_model,train_data,train_model.train_op,i)
+                evaluate_model_quick(sess,i)
+        else:
+            for i in range(conf.num_epochs):
+                print("第 {0}次epoch".format(i))
+                #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
+                run_batch_all(sess,train_model,train_data,train_model.train_op,i)
+                evaluate_model_all(sess,i)
 
             #if (i + 1) % 10 == 0:
             #    saver.save(sess, data_path + task)
 
 def main():
-    rnn_nv1_model()
+    rnn_nv1_model(True)
 
+def slice_seq(classes):
+    # 分训练集与测试集 验证集 8：1：1
+    train_data_all = None
+    train_label_all = None
+    train_early_all = None
+    valid_data_all = None
+    valid_label_all = None
+    valid_early_all = None
+    test_data_all = None
+    test_label_all = None
+    test_early_all = None
+    features_arr_list = []
+    index_arr_list = []
+    label_arr_list = []
+    data_file_name_exp = data_path +"transportation_mode"
+    for i in range(classes):
+        print("加载" + str(i))
+        # data_file  = data_file_name +str(i) +".npy"
+        index_df = pd.DataFrame(pd.read_csv(data_file_name_exp +"_"+ str(i) + "_seg_index.csv"))
+        features_arr = np.load(data_file_name_exp + str(i) + ".npy")
+        features_arr = features_arr[:, 0:len_features]
+        index_arr = np.array(index_df.iloc[:, [1, 2]].T)
+        # index shape = [2,总个数]
+        # 第一维是第几段轨迹 第二维是在固定长度为exp_seq_len中的实际长度
+        # data shape =[seq_nums,exp_seq_len,feature_len]   切出相等的数据长度 不足的padding
+        (data, index_arr) = Data.slice_seq(features_arr, index_arr, conf.exp_seq_len)
+
+        np.save(data_path+"slice_label" + str(i)+"_"+str(conf.exp_seq_len)+".npy",data)
+        np.save(data_path+"slice_index"+str(i)+".npy",index_arr)
+
+def partition_data_set(classes):
+    out_data_path = "G:/all_data/"
+    # 分训练集与测试集 验证集 8：1：1
+    train_data_all = None
+    train_label_all = None
+    train_early_all = None
+    valid_data_all = None
+    valid_label_all = None
+    valid_early_all = None
+    test_data_all = None
+    test_label_all = None
+    test_early_all = None
+    data_file_name_exp = data_path + "transportation_mode"
+    for i in range(classes):
+        data = np.load(data_path + "slice_label" + str(i) + "_" + str(conf.exp_seq_len) + ".npy")
+        index_arr = np.load(data_path + "slice_index" + str(i) + ".npy")
+
+        # 切割后删除features_arr index
+        label_arr = np.zeros(shape=[index_arr.shape[1]], dtype=np.int32)
+        label_arr[:] = i
+        # features_arr_list.append(data)
+        # index_arr_list.append(index)
+        # label_arr_list.append(label)
+        # 划分训练集，验证集，测试集
+        print("划分训练集，验证集，测试集   " + str(i))
+        seq_nums = index_arr.shape[1]
+        # 控制变量
+        np.random.seed(2)
+        index_perm = np.random.permutation(range(seq_nums))
+        train_count = int(np.floor(seq_nums * 0.8))
+        valid_count = int(np.floor(seq_nums * 0.9))
+        test_count = seq_nums
+        train_index = index_perm[0:train_count]
+        valid_index = index_perm[train_count + 1:valid_count]
+        test_index = index_perm[valid_count + 1:seq_nums]
+
+        # train_set valid_set test_set
+        train_data = data[train_index, :, :]
+        train_label = label_arr[train_index]
+        train_early = index_arr[1, train_index]
+
+        valid_data = data[valid_index, :, :]
+        valid_label = label_arr[valid_index]
+        valid_early = index_arr[1, valid_index]
+
+        test_data = data[test_index, :, :]
+        test_label = label_arr[test_index]
+        test_early = index_arr[1, test_index]
+
+        # 删除读取到的data.
+        del data
+        del label_arr
+        del index_arr
+
+        print("连接")
+        if train_data_all is None:
+            train_data_all = train_data
+            train_label_all = train_label
+            train_early_all = train_early
+
+            valid_data_all = valid_data
+            valid_label_all = valid_label
+            valid_early_all = valid_early
+
+            test_data_all = test_data
+            test_label_all = test_label
+            test_early_all = test_early
+        else:
+            train_data_all = np.concatenate((train_data_all, train_data), axis=0)
+            train_label_all = np.concatenate((train_label_all, train_label), axis=0)
+            train_early_all = np.concatenate((train_early_all, train_early), axis=0)
+
+            valid_data_all = np.concatenate((valid_data_all, valid_data), axis=0)
+            valid_label_all = np.concatenate((valid_label_all, valid_label), axis=0)
+            valid_early_all = np.concatenate((valid_early_all, valid_early), axis=0)
+
+            test_data_all = np.concatenate((test_data_all, test_data), axis=0)
+            test_label_all = np.concatenate((test_label_all, test_label), axis=0)
+            test_early_all = np.concatenate((test_early_all, test_early), axis=0)
+
+    np.savez(out_data_path+"valid_data_set.npz",valid_data=valid_data_all,valid_label = valid_label_all,valid_early_stop = valid_early_all)
+    del valid_label_all
+    del valid_data_all
+    del valid_early_all
+    np.savez(out_data_path+"test_data_set.npz",test_data=test_data_all,test_label = test_label_all,test_early_stop = test_early_all)
+    del test_label_all
+    del test_early_all
+    del test_data_all
+    np.savez(out_data_path + "train_data_set.npz", train_data=train_data_all, train_label=train_label_all,train_early_stop=train_early_all)
 
 if __name__ == "__main__":
-
+    #slice_seq(4)
     main()
+    #partition_data_set(4)

@@ -41,7 +41,6 @@ class CustomizedGRU(RNNCell):
 
             new_h = u*state +(1-u)*c
 
-
         return new_h,new_h
 
 
