@@ -12,15 +12,18 @@ from myThread import MyThread
 import random
 from tensorflow.contrib import layers
 from data_funs import Data
+import util
 import param
 
 conf = config.Config("data/config.json")
-log_path = "./logdir/transportation_feature_en_1_interval_1&2_expand_all/"
+log_path = "./logdir/tfrecord/"
 data_path = "./data/transportation_feature_en_1_interval_1&2_expand_all/"
+tfrecords_data_path = "G:/all_data/tfrecords_seq_50/"
 task = conf.task
 LOGGER = Log(log_path)
-len_features = conf.num_features * 20
+len_features = conf.num_features * param.WIDTH
 
+#从npy加载数据
 def loadData_rnn_nvn():
     x_file = 'data/x_mobility.npy'
     y_file = 'data/y_mobility.npy'
@@ -112,6 +115,7 @@ def loadData_rnn_nvn():
 
     return (train_data,test_data,val_data,train_config,test_config,valid_config)
 
+#加载rnn_nv1数据从npy文件
 def load_data_rnn_nv1(classes):
     # 分训练集与测试集 验证集 8：1：1
     train_data_all = None
@@ -338,7 +342,7 @@ def load_data_rnn_nv1_other(classes):
     test_set = (test_data_all, test_label_all, test_early_all)
     return train_set, valid_set, test_set
 
-#直接读取整个data  noTranspose
+#直接读取整个data npz  noTranspose
 def load_data_rnn_nv1_quick(classes):
     data_dir = "G:/all_data/"
     train_data_set_name = data_dir + "train_data_set.npz"
@@ -383,6 +387,137 @@ def evaluate_model(sess, minibatch):
 
     return result_train + result_test + result_valid
 
+def evaluate_model_all(sess,epoch):
+    result_train = run_batch_all(sess, train_model, train_data, tf.no_op(), epoch)
+    result_valid = run_batch_all(sess, valid_model, valid_data, tf.no_op(), epoch)
+    result_test = run_batch_all(sess, test_model, test_data, tf.no_op(), epoch)
+
+
+    LOGGER.summary_log(result_train+result_valid+result_test,epoch)
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_train[0], result_train[1]))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_valid[0], result_valid[1]))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_test[0], result_test[1]))
+
+    return result_train + result_test + result_valid
+
+def evaluate_model_quick(sess,epoch):
+    print("开始测试训练集")
+    result_train = run_batch_quick(sess, train_model, train_data, tf.no_op(), epoch)
+    print("开始测试验证集")
+    result_valid = run_batch_quick(sess, valid_model, valid_data, tf.no_op(), epoch)
+    print("开始测试测试集")
+    result_test = run_batch_quick(sess, test_model, test_data, tf.no_op(), epoch)
+
+    LOGGER.summary_log(result_train + result_valid + result_test, epoch)
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_train[0], result_train[1]))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_valid[0], result_valid[1]))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        result_test[0], result_test[1]))
+
+    return result_train + result_test + result_valid
+
+def evaluate_from_tfrecords(iter):
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+        print(len(threads))
+        train_cost, train_acc = run_batch_from_tfrecords(sess, coord, train_model, tf.no_op())
+
+        coord.request_stop()
+        coord.join(threads)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        valid_cost, valid_acc = run_batch_from_tfrecords(sess, coord, valid_model, tf.no_op())
+
+        coord.request_stop()
+        coord.join(threads)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        sess.run(tf.local_variables_initializer())
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+
+        test_cost, test_acc = run_batch_from_tfrecords(sess, coord, test_model, tf.no_op())
+
+        coord.request_stop()
+        coord.join(threads)
+
+    LOGGER.summary_log((train_cost, train_acc, valid_cost, valid_acc, test_cost, test_acc),iter)
+
+    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
+        train_cost, train_acc))
+    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
+        valid_cost, valid_acc))
+    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
+        test_cost, test_acc))
+
+def evaluate_from_tfrecord_dataset(sess, model, eval_op):
+    if model.is_validation:
+        valid_data_set = make_dataset_from_tfrecord_file(param.valid_file_pattern, conf.batch_size, 1)
+        valid_data_iterator = valid_data_set.make_initializable_iterator()
+        valid_next_element = valid_data_iterator.get_next()
+
+        sess.run(valid_data_iterator.initializer)
+        cost_list = []
+        acc_list = []
+        try:
+            while True:
+                input, early, label = sess.run(valid_next_element)
+                print(input.shape)
+                if input.shape[0] < conf.batch_size:
+                    break
+                input = np.transpose(input,[1,0,2])
+                cost, acc = sess.run(fetches=[model.cost, model.accuracy], feed_dict={model.input_data: input,
+                                                                                      model.early_stop: early,
+                                                                                      model.targets: label})
+                cost_list.append(cost)
+                acc_list.append(acc)
+
+        except tf.errors.OutOfRangeError:
+            return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
+        return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
+
+    if model.is_test:
+        test_data_set = make_dataset_from_tfrecord_file(param.test_file_pattern, conf.batch_size, 1)
+        test_data_iterator = test_data_set.make_initializable_iterator()
+        test_next_element = test_data_iterator.get_next()
+
+        sess.run(test_data_iterator.initializer)
+        cost_list = []
+        acc_list = []
+        try:
+            while True:
+                input, early, label = sess.run(test_next_element )
+                print(input.shape)
+                if input.shape[0] < 128:
+                    break
+                input = np.transpose(input,[1,0,2])
+                cost, acc = sess.run(fetches=[model.cost, model.accuracy], feed_dict={model.input_data: input,
+                                                                                      model.early_stop: early,
+                                                                                      model.targets: label})
+                cost_list.append(cost)
+                acc_list.append(acc)
+
+        except tf.errors.OutOfRangeError:
+            return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
+        return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
+
+#minbatch训练方法
 def run_batch(session, model, data, eval_op, minibatch):
     # 准备数据
     x, y, e_stop = data
@@ -468,42 +603,6 @@ def run_batch(session, model, data, eval_op, minibatch):
 
     # training: keep track of minibatch number
     return (minibatch)
-
-def evaluate_model_all(sess,epoch):
-    result_train = run_batch_all(sess, train_model, train_data, tf.no_op(), epoch)
-    result_valid = run_batch_all(sess, valid_model, valid_data, tf.no_op(), epoch)
-    result_test = run_batch_all(sess, test_model, test_data, tf.no_op(), epoch)
-
-
-    LOGGER.summary_log(result_train+result_valid+result_test,epoch)
-
-    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_train[0], result_train[1]))
-    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_valid[0], result_valid[1]))
-    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_test[0], result_test[1]))
-
-    return result_train + result_test + result_valid
-
-def evaluate_model_quick(sess,epoch):
-    print("开始测试训练集")
-    result_train = run_batch_quick(sess, train_model, train_data, tf.no_op(), epoch)
-    print("开始测试验证集")
-    result_valid = run_batch_quick(sess, valid_model, valid_data, tf.no_op(), epoch)
-    print("开始测试测试集")
-    result_test = run_batch_quick(sess, test_model, test_data, tf.no_op(), epoch)
-
-    LOGGER.summary_log(result_train + result_valid + result_test, epoch)
-
-    print("Train cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_train[0], result_train[1]))
-    print("Valid cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_valid[0], result_valid[1]))
-    print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
-        result_test[0], result_test[1]))
-
-    return result_train + result_test + result_valid
 
 def run_batch_all(session,model,data,eval_op,epoch):
     x, y, e_stop = data
@@ -641,6 +740,38 @@ def run_batch_quick(session,model,data,eval_op,epoch):
 
     print("训练完毕  " + str(epoch))
 
+def run_batch_from_tfrecords(sess, coord, model, eval_op):
+    if model.is_training and eval_op == model.train_op:
+        count = 1
+        iter = 0
+        while not coord.should_stop():
+            if count % conf.evaluate_freq != 0:
+                _ = sess.run(model.train_op)
+
+            else:
+                coord.request_stop()
+                print("第%d次测试精度" % (iter))
+                evaluate_from_tfrecords(iter)
+                coord.clear_stop()
+                iter += 1
+            count+=1
+
+    else:
+        accuracy_list = []
+        cost_list = []
+        try:
+            while not coord.should_stop():
+                cost, accuracy = sess.run([model.cost, model.accuracy])
+                print(cost,accuracy)
+                accuracy_list.append(accuracy)
+                cost_list.append(cost)
+        except tf.errors.OutOfRangeError:
+            print("测试完成")
+        acc_mean = sum(accuracy_list) / len(accuracy_list)
+        cost_mean = sum(cost_list) / len(cost_list)
+        return cost_mean, acc_mean
+
+#nvn model
 def rnn_nvn_model():
     #1 处理数据
     #2 设置模型
@@ -699,12 +830,13 @@ def rnn_nvn_model():
         if conf.checkpoint:
             save_path = saver.save(sess,data_path+task)
 
+#nv1 model
 def rnn_nv1_model(is_quick):
     global train_data
     global test_data
     global valid_data
-    train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
-    print("数据加载完毕......")
+    #train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
+    #print("数据加载完毕......")
     train_conf = None
     valid_conf = None
     test_conf = None
@@ -728,24 +860,23 @@ def rnn_nv1_model(is_quick):
         test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
                                    rnn_type=RNNType.GRU)
 
-
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     #config.gpu_options.per_process_gpu_memory_fraction = 0.7  # 占用GPU90%的显存
+    initializer = tf.random_uniform_initializer(0, conf.init_scale)
+
+    with tf.variable_scope("model", reuse=False, initializer=initializer):
+        global train_model
+        train_model = Model(conf, train_conf)
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        global test_model
+        test_model = Model(conf, test_conf)
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        global valid_model
+        valid_model = Model(conf, valid_conf)
 
     minibatch = 0
     with tf.Session(config=config) as sess:
-        initializer = tf.random_uniform_initializer(0, conf.init_scale)
-
-        with tf.variable_scope("model",reuse=False,initializer=initializer):
-            global train_model
-            train_model = Model(conf,train_conf)
-        with tf.variable_scope("model",reuse=True,initializer=initializer):
-            global test_model
-            test_model = Model(conf,test_conf)
-        with tf.variable_scope("model",reuse=True,initializer=initializer):
-            global valid_model
-            valid_model = Model(conf,valid_conf)
 
         saver = None
         if conf.checkpoint or conf.restore:
@@ -772,18 +903,204 @@ def rnn_nv1_model(is_quick):
                 run_batch_quick(sess,train_model,train_data,train_model.train_op,i)
                 evaluate_model_quick(sess,i)
         else:
-            for i in range(conf.num_epochs):
-                print("第 {0}次epoch".format(i))
-                #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
-                run_batch_all(sess,train_model,train_data,train_model.train_op,i)
-                evaluate_model_all(sess,i)
+            sess.run(tf.local_variables_initializer())
+            coord = tf.train.Coordinator()
+            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
 
-            #if (i + 1) % 10 == 0:
-            #    saver.save(sess, data_path + task)
+            run_batch_from_tfrecords(sess,coord,train_model,train_model.train_op)
 
-def main():
-    rnn_nv1_model(True)
+            coord.request_stop()
+            coord.join(threads)
 
+#队列版
+def rnn_nv1_model_tfrecord():
+    global train_data
+    global test_data
+    global valid_data
+    # train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
+    # print("数据加载完毕......")
+    train_conf = None
+    valid_conf = None
+    test_conf = None
+
+    if conf.rnn_type == "lstm_b":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.LSTM_b)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.LSTM_b)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.LSTM_b)
+    elif conf.rnn_type == "gru_b":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU_b)
+    elif conf.rnn_type == "gru":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    # config.gpu_options.per_process_gpu_memory_fraction = 0.7  # 占用GPU90%的显存
+    initializer = tf.random_uniform_initializer(0, conf.init_scale)
+
+    with tf.variable_scope("model", reuse=False, initializer=initializer):
+        global train_model
+        train_model = Model(conf, train_conf)
+
+    # with tf.variable_scope("model", reuse=True, initializer=initializer):
+    #     global test_model
+    #     test_model = Model(conf, test_conf)
+    #
+    # with tf.variable_scope("model", reuse=True, initializer=initializer):
+    #     global valid_model
+    #     valid_model = Model(conf, valid_conf)
+
+
+    train_filenames = np.array(util.search_file("interval_[1-5]_label_[0-3]_train.tfrecords", tfrecords_data_path))
+    valid_filenames = np.array(util.search_file("interval_[1-5]_label_[0-3]_valid.tfrecords", tfrecords_data_path))
+    test_filenames = np.array(util.search_file("interval_[1-5]_label_[0-3]_test.tfrecords", tfrecords_data_path))
+
+    minibatch = 0
+    with tf.Session(config=config) as sess:
+
+        saver = None
+        if conf.checkpoint or conf.restore:
+            saver = tf.train.Saver()
+
+        if conf.tensorboard:
+            global writer
+            writer = tf.summary.FileWriter(log_path, sess.graph)
+
+        sess.run(tf.local_variables_initializer())
+        if not conf.restore:
+            sess.run(tf.global_variables_initializer())  # initialize all variables in the model
+        else:
+            saver.restore(sess, data_path + task)
+            print("装载变量......")
+
+        LOGGER.training_log(str(conf.__dict__))
+
+        coord = tf.train.Coordinator()
+        threads = tf.train.start_queue_runners(sess=sess, coord=coord,start=True)
+        #print("a")
+        for i in range(10000):
+            _  = sess.run(train_model.train_op)
+
+        #run_batch_from_tfrecords(sess, coord, train_model, train_model.train_op)
+
+        coord.request_stop()
+        coord.join(threads)
+
+#dataset版
+def rnn_nv1_model_tfrecord_dataset():
+    if conf.rnn_type == "lstm_b":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.LSTM_b)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.LSTM_b)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.LSTM_b)
+    elif conf.rnn_type == "gru_b":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU_b)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU_b)
+    elif conf.rnn_type == "gru":
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU)
+    else:
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                    rnn_type=RNNType.GRU)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                   rnn_type=RNNType.GRU)
+
+    config = tf.ConfigProto()
+    config.gpu_options.allow_growth = True
+    # config.gpu_options.per_process_gpu_memory_fraction = 0.7  # 占用GPU90%的显存
+    initializer = tf.random_uniform_initializer(0, conf.init_scale)
+
+    with tf.variable_scope("model", reuse=False, initializer=initializer):
+        global train_model
+        train_model = Model(conf, train_conf)
+
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        global test_model
+        test_model = Model(conf, test_conf)
+
+    with tf.variable_scope("model", reuse=True, initializer=initializer):
+        global valid_model
+        valid_model = Model(conf, valid_conf)
+
+    train_data_set = make_dataset_from_tfrecord_file(param.train_file_pattern,conf.batch_size,conf.num_epochs)
+    train_data_iterator = train_data_set.make_initializable_iterator()
+    train_next_element = train_data_iterator.get_next()
+    i = 0
+    with tf.Session(config=config) as sess:
+        sess.run(train_data_iterator.initializer)
+        sess.run(tf.global_variables_initializer())
+        try:
+            while True:
+                # 通过session每次从数据集中取值
+                input,early,label = sess.run(fetches=train_next_element)
+                if input.shape[0] < 128:
+                    break
+                input = np.transpose(input,[1,0,2])
+                sess.run(fetches=train_model.train_op, feed_dict={train_model.input_data:input,
+                                                                  train_model.early_stop:early,
+                                                                  train_model.targets:label})
+                print("训练集第%d个batch" %(i))
+                if i % 100 == 0 :
+                    valid_cost,valid_acc = evaluate_from_tfrecord_dataset(sess,valid_model,tf.no_op())
+                    test_cost,test_acc = evaluate_from_tfrecord_dataset(sess,test_model,tf.no_op())
+                    print("验证集cost:%f,acc:%f" %(valid_cost,valid_acc))
+                    print("测试集cost:%f,acc:%f" %(test_cost,test_acc))
+                i = i + 1
+        except tf.errors.OutOfRangeError:
+            print("end!")
+
+def __parse_function(example_proto):
+    feature = param.feature
+    features = tf.parse_single_example(example_proto,feature)
+    speed_sec = tf.reshape(tf.decode_raw(features[param.SPEED_SEC], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    avg_speed = tf.reshape(tf.decode_raw(features[param.AVG_SPEED], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    std_speed = tf.reshape(tf.decode_raw(features[param.STD_SPEED], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    acc_sec = tf.reshape(tf.decode_raw(features[param.ACC_SEC], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    mean_acc = tf.reshape(tf.decode_raw(features[param.MEAN_ACC], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    std_acc = tf.reshape(tf.decode_raw(features[param.STD_ACC], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    early = tf.cast(features[param.EARLY], tf.int32)
+    label = tf.cast(features[param.LABEL], tf.int32)
+
+    seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc], axis=1)
+    seq_float32 = tf.cast(seq, tf.float32)
+
+    return seq_float32,early,label
+
+
+def make_dataset_from_tfrecord_file(file_name_pattern,batch_size=32,repeat = 1):
+    filenames = util.search_file(file_name_pattern, tfrecords_data_path)
+    dataset = tf.data.TFRecordDataset(filenames)
+    dataset = dataset.map(__parse_function)
+    dataset = dataset.shuffle(10000).batch(batch_size)
+    dataset = dataset.repeat(repeat)
+
+    return dataset
+
+#切割数据为预期长度的npy文件
 def slice_seq(classes):
     # 分训练集与测试集 验证集 8：1：1
     train_data_all = None
@@ -814,6 +1131,7 @@ def slice_seq(classes):
         np.save(data_path+"slice_label" + str(i)+"_"+str(conf.exp_seq_len)+".npy",data)
         np.save(data_path+"slice_index"+str(i)+".npy",index_arr)
 
+#分割数据集，并写为npz文件
 def partition_data_set(classes):
     out_data_path = "G:/all_data/"
     # 分训练集与测试集 验证集 8：1：1
@@ -903,6 +1221,9 @@ def partition_data_set(classes):
     del test_early_all
     del test_data_all
     np.savez(out_data_path + "train_data_set.npz", train_data=train_data_all, train_label=train_label_all,train_early_stop=train_early_all)
+
+def main():
+    rnn_nv1_model_tfrecord_dataset()
 
 if __name__ == "__main__":
     #slice_seq(4)

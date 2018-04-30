@@ -10,7 +10,7 @@ import os
 import time
 import pandas as pd
 import util
-from param import width
+from param import WIDTH
 from param import FeatureName
 import config
 import param
@@ -514,12 +514,12 @@ class Data:
             #     file.write("\n")
             #
             # file.close()
-            speed_sec = pd.DataFrame(Data.equal_width(users_df["speed_sec"],width))
-            acc_sec = pd.DataFrame(Data.equal_width(users_df["acc_sec"],width))
-            avg_speed = pd.DataFrame(Data.equal_width(users_df["avg_speed"],width))
-            std_speed = pd.DataFrame(Data.equal_width(users_df["std_speed"],width))
-            mean_acc = pd.DataFrame(Data.equal_width(users_df["mean_acc"],width))
-            std_acc = pd.DataFrame(Data.equal_width(users_df["std_acc"],width))
+            speed_sec = pd.DataFrame(Data.equal_width(users_df["speed_sec"],WIDTH))
+            acc_sec = pd.DataFrame(Data.equal_width(users_df["acc_sec"],WIDTH))
+            avg_speed = pd.DataFrame(Data.equal_width(users_df["avg_speed"],WIDTH))
+            std_speed = pd.DataFrame(Data.equal_width(users_df["std_speed"],WIDTH))
+            mean_acc = pd.DataFrame(Data.equal_width(users_df["mean_acc"],WIDTH))
+            std_acc = pd.DataFrame(Data.equal_width(users_df["std_acc"],WIDTH))
 
             print("连接矩阵")
             #features_en = np.concatenate((speed_sec,avg_speed,std_speed,acc_sec,mean_acc,std_acc),axis=1)
@@ -842,7 +842,6 @@ class Data:
         test_data_file = data_path + "test_data_set.npz"
         np.savez(test_data_file, test_data=test_data_all, test_label=test_label_all, test_early=test_early_all)
 
-
     #连接数据
     @staticmethod
     def concat_data(classes,len_features):
@@ -902,28 +901,30 @@ class Data:
             k = 0
             for label_name,label_group in data_label_groups:
 
-                if k < 6:
-                    k+=1
-                    continue
+                # if k < 6:
+                #     k+=1
+                #     continue
                 # if k > 5:
                 #     break
+                file_group_count = 0
+
                 print("处理label"+str(label_name))
                 train_writer = tf.python_io.TFRecordWriter(
-                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_train.tfrecords")
+                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_train_0.tfrecords")
                 valid_writer = tf.python_io.TFRecordWriter(
-                    "G:/all_data/tfrecords/interval_" + str(interval) +"_label_"+str(label_name)+ "_valid.tfrecords")
+                    "G:/all_data/tfrecords/interval_" + str(interval) +"_label_"+str(label_name)+ "_valid_0.tfrecords")
                 test_writer = tf.python_io.TFRecordWriter(
-                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_test.tfrecords")
+                    "G:/all_data/tfrecords/interval_" + str(interval)+"_label_"+str(label_name) + "_test_0.tfrecords")
                 seg_groups = label_group.groupby(by="seg_label")
                 count = 0
                 for seg_name,seg_group in seg_groups:
                     #seg_group 存放每段的轨迹点的特征，每个特征长30
-                    speed_sec = np.array(seg_group.iloc[:,0:1*width])
-                    avg_speed = np.array(seg_group.iloc[:1*width:2*width])
-                    std_speed = np.array(seg_group.iloc[:,2*width:3*width])
-                    acc_sec = np.array(seg_group.iloc[:, 3 * width:4 * width])
-                    mean_acc = np.array(seg_group.iloc[:, 4 * width:5 * width])
-                    std_acc = np.array(seg_group.iloc[:, 5 * width:6 * width])
+                    speed_sec = np.array(seg_group.iloc[:,0:1*WIDTH])
+                    avg_speed = np.array(seg_group.iloc[:1*WIDTH:2*WIDTH])
+                    std_speed = np.array(seg_group.iloc[:,2*WIDTH:3*WIDTH])
+                    acc_sec = np.array(seg_group.iloc[:, 3 * WIDTH:4 * WIDTH])
+                    mean_acc = np.array(seg_group.iloc[:, 4 * WIDTH:5 * WIDTH])
+                    std_acc = np.array(seg_group.iloc[:, 5 * WIDTH:6 * WIDTH])
                     feature = {
                         FeatureName.SPEED_SEC.value : Data._bytes_feature(speed_sec.tobytes()),
                         FeatureName.AVG_SPEED.value : Data._bytes_feature(avg_speed.tobytes()),
@@ -934,6 +935,24 @@ class Data:
                         "label":Data._int64_feature(label_name)
                     }
                     example = tf.train.Example(features = tf.train.Features(feature = feature))
+
+                    if count % 1000 == 0 and count > 0:
+                        train_writer.close()
+                        valid_writer.close()
+                        test_writer.close()
+                        sys.stdout.flush()
+                        file_group_count += 1
+
+                        train_writer = tf.python_io.TFRecordWriter(
+                            "G:/all_data/tfrecords/interval_" + str(interval) + "_label_" + str(
+                                label_name) + "_train_" + str(file_group_count)+ ".tfrecords")
+                        valid_writer = tf.python_io.TFRecordWriter(
+                            "G:/all_data/tfrecords/interval_" + str(interval) + "_label_" + str(
+                                label_name) + "_valid_" + str(file_group_count)+ ".tfrecords")
+                        test_writer = tf.python_io.TFRecordWriter(
+                            "G:/all_data/tfrecords/interval_" + str(interval) + "_label_" + str(
+                                label_name) + "_test_" + str(file_group_count)+ ".tfrecords")
+
 
                     t = count % 10
                     if t >=0 and t <8 :
@@ -950,6 +969,215 @@ class Data:
                 test_writer.close()
                 sys.stdout.flush()
 
+    @staticmethod
+    def pad_seqs(x,exp_seq_len):
+        seq_nums = int(np.ceil(x.shape[0]/exp_seq_len))
+        seq_len = x.shape[0]
+        early = np.zeros([seq_nums],dtype=np.int64)
+
+        remain_len = seq_len % exp_seq_len
+        if remain_len != 0:
+            x_pad = np.pad(x,[[0,exp_seq_len-remain_len],[0,0]],"constant",constant_values=0)
+            early[0:seq_nums-1] = exp_seq_len
+            early[-1] = remain_len
+            return x_pad,early
+        else:
+            early[:] = exp_seq_len
+            return x,early
+
+    @staticmethod
+    def pad_slice_seqs(x,exp_seq_len):
+        #未完成
+        seq_nums = int(np.ceil(x.shape[0] / exp_seq_len))
+        seq_len = x.shape[0]
+        early = np.zeros([seq_nums], dtype=np.int32)
+        remain_len = seq_len % exp_seq_len
+        full_seq_nums = seq_len // exp_seq_len
+        pass
+
+
+    @staticmethod
+    def make_tfrecord_seq(interval_list,exp_seq_len):
+        data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/"
+        out_path = "G:/all_data/tfrecords_seq_50/"
+        for interval in interval_list:
+            print("处理" + str(interval))
+            # train_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_train.tfrecords")
+            # valid_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_valid.tfrecords")
+            # test_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_test.tfrecords")
+            data_file_name = data_dir + "user_features_data_en_1_interval_" + str(interval) + ".csv"
+            data_file = open(data_file_name, mode="r")
+            data_df = pd.DataFrame(pd.read_csv(data_file))
+
+            data_label_groups = data_df.groupby(by="label")
+            k = 0
+            for label_name, label_group in data_label_groups:
+
+                # if k < 6:
+                #     k+=1
+                #     continue
+                # if k > 5:
+                #     break
+                file_group_count = 0
+                print("处理label" + str(label_name))
+                train_writer = tf.python_io.TFRecordWriter(
+                    out_path + "interval_"+str(interval) + "_label_" + str(
+                        label_name) + "_train_0.tfrecords")
+                valid_writer = tf.python_io.TFRecordWriter(
+                    out_path + "interval_"+ str(interval) + "_label_" + str(
+                        label_name) + "_valid_0.tfrecords")
+                test_writer = tf.python_io.TFRecordWriter(
+                    out_path + "interval_"+ str(interval) + "_label_" + str(label_name) + "_test_0.tfrecords")
+                seg_groups = label_group.groupby(by="seg_label")
+                count = 0
+                for seg_name, seg_group in seg_groups:
+                    # seg_group 存放每段的轨迹点的特征，每个特征长30
+                    speed_sec = np.array(seg_group.iloc[:, 0 : 1 * WIDTH],dtype=np.int64)
+                    avg_speed = np.array(seg_group.iloc[:, 1* WIDTH : 2 * WIDTH],dtype=np.int64)
+                    std_speed = np.array(seg_group.iloc[:, 2* WIDTH : 3 * WIDTH],dtype=np.int64)
+                    acc_sec = np.array(seg_group.iloc[:, 3* WIDTH : 4 * WIDTH],dtype=np.int64)
+                    mean_acc = np.array(seg_group.iloc[:, 4* WIDTH : 5 * WIDTH],dtype=np.int64)
+                    std_acc = np.array(seg_group.iloc[:, 5* WIDTH : 6 * WIDTH],dtype=np.int64)
+
+                    speed_sec_pad,speed_sec_early = Data.pad_seqs(speed_sec,exp_seq_len)
+                    avg_speed_pad,avg_speed_early = Data.pad_seqs(avg_speed,exp_seq_len)
+                    std_speed_pad,std_speed_early = Data.pad_seqs(std_speed,exp_seq_len)
+                    acc_sec_pad,acc_sec_early = Data.pad_seqs(acc_sec,exp_seq_len)
+                    mean_acc_pad,mean_acc_early = Data.pad_seqs(mean_acc,exp_seq_len)
+                    std_acc_pad,std_acc_early = Data.pad_seqs(std_acc,exp_seq_len)
+
+                    label = np.zeros(speed_sec_early.shape,np.int64)
+                    label[:] = int(label_name)
+
+                    for i in range(len(speed_sec_early)):
+                        start = i*exp_seq_len
+                        end = (i+1)*exp_seq_len
+
+                        feature = {
+                            param.SPEED_SEC: Data._bytes_feature(speed_sec_pad[start:end].tobytes()),
+                            param.AVG_SPEED: Data._bytes_feature(avg_speed_pad[start:end].tobytes()),
+                            param.STD_SPEED: Data._bytes_feature(std_speed_pad[start:end].tobytes()),
+                            param.ACC_SEC: Data._bytes_feature(acc_sec_pad[start:end].tobytes()),
+                            param.MEAN_ACC: Data._bytes_feature(mean_acc_pad[start:end].tobytes()),
+                            param.STD_ACC: Data._bytes_feature(std_acc_pad[start:end].tobytes()),
+                            param.EARLY:Data._int64_feature(speed_sec_early[i]),
+                            param.LABEL: Data._int64_feature(label[i])
+                        }
+                        example = tf.train.Example(features=tf.train.Features(feature=feature))
+
+                        if count % 1000 == 0 and count > 0:
+                            print("1000")
+                            train_writer.close()
+                            valid_writer.close()
+                            test_writer.close()
+                            #sys.stdout.flush()
+                            file_group_count += 1
+
+                            train_writer = tf.python_io.TFRecordWriter(
+                                out_path + "interval_" + str(interval) + "_label_" + str(
+                                    label_name) + "_train_" + str(file_group_count) + ".tfrecords")
+                            valid_writer = tf.python_io.TFRecordWriter(
+                                out_path + "interval_" + str(interval) + "_label_" + str(
+                                    label_name) + "_valid_" + str(file_group_count) + ".tfrecords")
+                            test_writer = tf.python_io.TFRecordWriter(
+                                out_path + "interval_" + str(interval) + "_label_" + str(
+                                    label_name) + "_test_" + str(file_group_count) + ".tfrecords")
+
+                        t = count % 10
+                        if t >= 0 and t < 8:
+                            train_writer.write(example.SerializeToString())
+                        elif t == 8:
+                            valid_writer.write(example.SerializeToString())
+                        else:
+                            test_writer.write(example.SerializeToString())
+
+                        count += 1
+
+                print(count)
+                k += 1
+                train_writer.close()
+                valid_writer.close()
+                test_writer.close()
+                sys.stdout.flush()
+
+
+
+    @staticmethod
+    def tf_slice_seq(input,exp_len_seq,has_early):
+
+        shape = tf.shape(input)
+        full_seq_nums = tf.floordiv(shape[0],exp_len_seq)
+        # ?tf.zeros()
+        result_list = []
+        early_stop = []
+        zero_constant = tf.zeros_like(full_seq_nums)
+        is_zero = tf.equal(full_seq_nums,zero_constant)
+        if not is_zero :
+            for i in range(full_seq_nums):
+                result_list.append(tf.slice(input,[i*exp_len_seq,WIDTH],[exp_len_seq,WIDTH]))
+                if has_early:
+                    early_stop.append(exp_len_seq)
+
+        remain_length = shape[0] - full_seq_nums*exp_len_seq
+        remain = tf.slice(input,[full_seq_nums*exp_len_seq,WIDTH],[shape[0]-remain_length,WIDTH])
+        remain_padding = tf.pad(remain,[[0,exp_len_seq - remain_length],[0,0]])
+        result_list.append(remain_padding)
+        if has_early:
+            early_stop.append(remain_length)
+
+        if has_early:
+            e = np.reshape(np.array(early_stop,np.int32),[len(early_stop),1])
+
+            earlys = tf.Constant(e)
+            return result_list,earlys
+
+        return result_list
+
+    @staticmethod
+    def tf_slice_examples(features,feature_name_list,label_name,has_early,exp_seq_len):
+
+        #feature_sliced_list  [[speed_sec_tensor*full_seq_num]]
+        feature_sliced_list = []
+        seqs = None
+        early_seqs = None
+        for feature_name in feature_name_list:
+            feature = tf.decode_raw(features[feature_name],tf.int32)
+            if has_early:
+                seqs,early_seqs = Data.tf_slice_seq(feature,exp_seq_len,has_early)
+            else:
+                seqs = Data.tf_slice_seq(feature,exp_seq_len, has_early)
+            feature_sliced_list.append(seqs)
+
+        if len(feature_sliced_list)>0:
+            seq_nums = len(feature_sliced_list[0])
+        else:
+            return
+
+        features_seqs = None
+        for i in range(seq_nums):
+            single_seq = None
+            for j in range(len[feature_name_list]):
+                if single_seq is None:
+                    single_seq = feature_sliced_list[i][j]
+                else:
+                    single_seq = tf.concat([single_seq,feature_sliced_list[i]][j],axis=1)
+
+            single_seq = tf.expand_dims(single_seq,axis=0)
+            if features_seqs is None:
+                features_seqs = single_seq
+            else:
+                features_seqs = tf.concat([features_seqs,single_seq],axis=0)
+
+        label = tf.cast(features[label_name], tf.int32)
+        label_arr = np.zeros(shape=[seq_nums,1],dtype=tf.int32)
+        label_arr[:] = label
+        label_seqs = tf.Constant(label_arr,dtype=tf.int32)
+        if has_early:
+            return features_seqs,early_seqs,label_seqs
+        else:
+            return features_seqs,label_seqs
+
+
 
 
 if __name__ == "__main__":
@@ -962,4 +1190,5 @@ if __name__ == "__main__":
     #Data.expand_data_npy(4,100)
     #Data.create_all_data_npy(4,100)
     #Data.concat_data(4,100)
-    Data.make_tfrecord([2])
+    #Data.make_tfrecord([5])
+    Data.make_tfrecord_seq([1],50)

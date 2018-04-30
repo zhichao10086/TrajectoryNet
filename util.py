@@ -1,6 +1,6 @@
 from math import radians, cos, sin, asin, sqrt
 import  os
-
+from glob import glob
 
 def jwd2dis(lat1,lon1,lat2,lon2):
     lat1,lon1,lat2,lon2 = map(radians,[lat1,lon1,lat2,lon2])
@@ -76,5 +76,10 @@ def delete_file():
 
         os.remove(data_txt_name)
 
+def search_file(pattern,path):
+    paths  = glob(os.path.join(path,pattern))
+    filenames = [ path.split("\\")[1]  for path in paths]
+    filenames = [os.path.join(path,name) for name in filenames]
+    return filenames
 if __name__ == "__main__":
-    delete_file()
+    print(search_file("interval_[0-1]_*_train.tfrecords","G:/all_data/tfrecords/"))

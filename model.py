@@ -6,7 +6,8 @@ import tensorflow.contrib as tf_ct
 from tensorflow.contrib.rnn import BasicLSTMCell
 from param import RNNType
 from param import NetType
-
+import param
+import util
 
 
 
@@ -14,48 +15,103 @@ from param import NetType
 class Model(object):
 
     def __init__(self,conf,config):
-        self.num_threads = conf.num_threads
-        self.hidden_size = conf.hidden_size                         #隐藏层节点
-        self.learning_rate = conf.learning_rate                     #学习速率
-        self.num_layers = conf.num_layers                           #隐藏层数
-        self.num_epochs = conf.num_epochs                           #训练周期
-        self.exp_seq_len = conf.exp_seq_len                         #序列长度
-        self.num_classes = conf.num_classes                         #分类个数
-        self.num_features = conf.num_features                       #特征数量
-        self.maxOut_numUnits = conf.maxOut_numUnits                 #maxout节点
-        self.embeded_dims = conf.embeded_dims                       #嵌入维数
-        self.bias_initializer = tf.random_uniform_initializer(0, 0.001) #bias初始器
-        self.l2_preparam = conf.l2_preparam                         #l2正则化超参数
 
-        #将一些要创建时的数据通过config类传进来 包括模式，数据长度等等
-        self.net_type = config.net_type             #网络类型
-        self.rnn_type = config.rnn_type             #rnn类型
-        self.is_training = config.is_training       #是否为训练模式
-        self.is_test = config.is_test               #是否为测试模式
-        self.is_validation = config.is_validation   #是否为验证模式
-        self.len_features = config.len_features     #特征长度
-        self.train_seq_len = config.train_seq_len   #训练集序列长度列表
-        self.valid_seq_len = config.val_seq_len
-        self.test_seq_len = config.test_seq_len
-        self.activation = config.activation         #激励函数
-        self.batch_size = config.batch_size         #batch尺寸
+        self.init_conf(conf)
+        self.init_config(config)
 
         self.current_step = tf.Variable(0,trainable=False)
-        self.decay_step = 10
-        self.decay_rate = 0.9
-        #self._learning_rate = tf.train.exponential_decay(self.learning_rate,self.current_step,self.decay_step,self.decay_rate)
-        self._learning_rate = 0.001
+
         #self.current_step = tf.Variable(0)
         if self.net_type == NetType.DNN:
-            self.init_dnn_type(conf)
+            self.init_dnn_type()
         elif self.net_type == NetType.CNN:
-            self.init_cnn_type(conf)
+            self.init_cnn_type()
         elif self.net_type == NetType.RNN_NV1:
-            self.init_rnn_type_nv1(conf)
+            self.init_rnn_type_nv1()
         elif self.net_type == NetType.RNN_NVN:
-            self.init_rnn_type_nvn(conf)
+            self.init_rnn_type_nvn()
 
-    def init_rnn_type_nv1(self, conf):
+    #init 文件里的配置
+    def init_conf(self,conf):
+        self.num_threads = conf.num_threads
+        self.hidden_size = conf.hidden_size  # 隐藏层节点
+        self.learning_rate = conf.learning_rate  # 学习速率
+        self.num_layers = conf.num_layers  # 隐藏层数
+        self.num_epochs = conf.num_epochs  # 训练周期
+        self.exp_seq_len = conf.exp_seq_len  # 序列长度
+        self.num_classes = conf.num_classes  # 分类个数
+        self.num_features = conf.num_features  # 特征数量
+        self.maxOut_numUnits = conf.maxOut_numUnits  # maxout节点
+        self.embeded_dims = conf.embeded_dims  # 嵌入维数
+        self.bias_initializer = tf.random_uniform_initializer(0, 0.001)  # bias初始器
+        self.l2_preparam = conf.l2_preparam  # l2正则化超参数
+        self.tensorboard  =conf.tensorboard
+        self.use_tfrecord = conf.use_tfrecord
+        self.tfrecord_path = conf.tfrecord_path
+        self.shuffle = conf.shuffle
+
+    #init 创建模型时的配置
+    def init_config(self,config):
+        # 将一些要创建时的数据通过config类传进来 包括模式，数据长度等等
+        self.net_type = config.net_type  # 网络类型
+        self.rnn_type = config.rnn_type  # rnn类型
+        self.is_training = config.is_training  # 是否为训练模式
+        self.is_test = config.is_test  # 是否为测试模式
+        self.is_validation = config.is_validation  # 是否为验证模式
+        self.len_features = config.len_features  # 特征长度
+        self.train_seq_len = config.train_seq_len  # 训练集序列长度列表
+        self.valid_seq_len = config.val_seq_len
+        self.test_seq_len = config.test_seq_len
+        self.activation = config.activation  # 激励函数
+        self.batch_size = config.batch_size  # batch尺寸
+
+    #init rnn_nv1数据从tfrecords
+    def init_rnn_nv1_data_from_tfrecords(self):
+
+        self._filenames = tf.placeholder(tf.string)
+        if self.is_training:
+            filenames = util.search_file("interval_[1-5]_label_[0-3]_train.tfrecords", self.tfrecord_path)
+        elif self.is_validation:
+            filenames = util.search_file("interval_[1-5]_label_[0-3]_valid.tfrecords", self.tfrecord_path)
+        else:
+            filenames = util.search_file("interval_[1-5]_label_[0-3]_test.tfrecords", self.tfrecord_path)
+
+        filename_queue = tf.train.string_input_producer(self._filenames,num_epochs=1,shuffle= self.shuffle)
+        # 读取器
+        reader = tf.TFRecordReader()
+        # 读取一个example
+        _, serialized_ex = reader.read(filename_queue)
+        # 解析一个
+        features = tf.parse_single_example(serialized_ex, features=param.feature)
+        # speed_sec = tf.decode_raw(features[param.SPEED_SEC], tf.int64)
+        # avg_speed = tf.decode_raw(features[param.AVG_SPEED], tf.int64)
+        # std_speed = tf.decode_raw(features[param.STD_SPEED], tf.int64)
+        speed_sec = tf.reshape(tf.decode_raw(features[param.SPEED_SEC], tf.int64), [self.exp_seq_len, param.width])
+        avg_speed = tf.reshape(tf.decode_raw(features[param.AVG_SPEED], tf.int64), [self.exp_seq_len, param.width])
+        std_speed = tf.reshape(tf.decode_raw(features[param.STD_SPEED], tf.int64), [self.exp_seq_len, param.width])
+        acc_sec = tf.reshape(tf.decode_raw(features[param.ACC_SEC], tf.int64), [self.exp_seq_len, param.width])
+        mean_acc = tf.reshape(tf.decode_raw(features[param.MEAN_ACC], tf.int64), [self.exp_seq_len, param.width])
+        std_acc = tf.reshape(tf.decode_raw(features[param.STD_ACC], tf.int64), [self.exp_seq_len, param.width])
+        early = tf.cast(features[param.EARLY], tf.int32)
+        label = tf.cast(features[param.LABEL], tf.int32)
+
+        feature_name_list = [param.SPEED_SEC, param.AVG_SPEED, param.STD_SPEED, param.ACC_SEC, param.MEAN_ACC,
+                             param.STD_ACC]
+
+        seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc], axis=1)
+        seq_float32 = tf.cast(seq,tf.float32)
+        batch_x, batch_early, batch_label = tf.train.shuffle_batch([seq_float32, early, label], batch_size=self.batch_size, num_threads=5,
+                                                                   capacity=512, min_after_dequeue=128)
+
+        self._input_data = tf.transpose(batch_x,[1,0,2])
+        self._targets = batch_label
+        self._valid_target = self._targets
+
+        # 用于提前结束每个batch
+        self._early_stop = batch_early
+
+    def init_rnn_type_nv1(self):
+
         # 输入数据
         self._input_data = tf.placeholder(tf.float32, [self.exp_seq_len, self.batch_size, self.len_features],
                                           name="input_data")
@@ -105,9 +161,9 @@ class Model(object):
             #self._accuracy = tf.metrics.accuracy( self._valid_target,self._digit_predictions)[1]
 
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self._learning_rate).minimize(self._cost,global_step=self.current_step)
+            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,global_step=self.current_step)
 
-        if conf.tensorboard:
+        if self.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
             self.b_hist = tf.summary.histogram("biases", self._softmax_b)
             self.y_hist_train = tf.summary.histogram("train-predictions", self._predictions)
@@ -115,10 +171,10 @@ class Model(object):
             self.mse_summary_train = tf.summary.scalar("train-cross-entropy-cost", self._cost)
             self.mse_summary_test = tf.summary.scalar("test-cross-entropy-cost", self._cost)
 
-    def init_rnn_type_nvn(self,conf):
+    def init_rnn_type_nvn(self):
         self._input_data = tf.placeholder(tf.float32, [self.exp_seq_len, self.batch_size, self.len_features],
                                           name="input_data")
-        self._targets = tf.placeholder(tf.int64, [self.batch_size, self.exp_seq_len], name="targets")
+        self._targets = tf.placeholder(tf.int32, [self.batch_size, self.exp_seq_len], name="targets")
 
         if self.is_training:
             self.seq_len = self.exp_seq_len * self.batch_size
@@ -132,7 +188,7 @@ class Model(object):
             cell = self.get_mutil_rnn_cell()
 
         # 用于提前结束每个batch
-        self._early_stop = tf.placeholder(tf.int64, shape=[self.batch_size], name="early-stop")
+        self._early_stop = tf.placeholder(tf.int32, shape=[self.batch_size], name="early-stop")
 
         # with tf.name_scope("embeded"):
         #   self.get_embeded_vec()
@@ -176,7 +232,7 @@ class Model(object):
         with tf.name_scope("optimization") as scope:
             self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,global_step=self.current_step)
 
-        if conf.tensorboard:
+        if self.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
             self.b_hist = tf.summary.histogram("biases", self._softmax_b)
             self.y_hist_train = tf.summary.histogram("train-predictions", self._predictions)
@@ -184,10 +240,10 @@ class Model(object):
             self.mse_summary_train = tf.summary.scalar("train-cross-entropy-cost", self._cost)
             self.mse_summary_test = tf.summary.scalar("test-cross-entropy-cost", self._cost)
 
-    def init_dnn_type(self, conf):
+    def init_dnn_type(self):
         pass
 
-    def init_cnn_type(self, conf):
+    def init_cnn_type(self):
         pass
 
     def get_embeded_vec(self):
@@ -223,7 +279,6 @@ class Model(object):
             cell_bw = tf_ct.rnn.MultiRNNCell(
                 [BasicLSTMCell(self.hidden_size,activation=self.activation) for _ in range(self.num_layers)])
             return (cell_fw,cell_bw)
-
 
     #初始化cell的状态
     def set_initial_states(self, cell):
@@ -313,7 +368,6 @@ class Model(object):
         # #总cost为 基础cost + l2cost
         self._cost = self._cost+self._l2_regularization_cost
 
-
     def get_valid_sequence(self, seq, feature_size):
         """remove padding from sequences"""
         if self.is_training:
@@ -350,6 +404,10 @@ class Model(object):
     @property
     def prob_predictions(self):
         return self._prob_predictions
+
+    @property
+    def filenames(self):
+        return self._filenames
 
     @property
     def input_data(self):

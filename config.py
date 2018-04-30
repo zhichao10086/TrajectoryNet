@@ -59,7 +59,11 @@ class Config(object):
         #
         self.rnn_type = dconf["rnn_type"]
 
+        self.use_tfrecord = dconf["use_tfrecord"]
 
+        self.tfrecord_path = dconf["tfrecord_path"]
+
+        self.shuffle = dconf["shuffle"]
 
 
 
