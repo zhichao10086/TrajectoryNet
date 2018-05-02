@@ -1,4 +1,4 @@
-from math import radians, cos, sin, asin, sqrt
+from math import radians, cos, sin, asin, sqrt,atan,pi
 import  os
 from glob import glob
 
@@ -10,6 +10,34 @@ def jwd2dis(lat1,lon1,lat2,lon2):
     c = 2 * asin(sqrt(a))
     r = 6371  # 地球平均半径，单位为公里
     return c * r * 1000
+
+def jwd2angle(lat1,lon1,lat2,lon_2):
+    dy = lon_2 - lon1
+    dx = lat2 - lat1
+    angle = 0
+
+    if dx == 0 and dy ==0:
+        angle = 0
+    elif dx == 0 and dy >0:
+        angle = 90
+    elif dx == 0 and dy <0:
+        angle = 270
+    elif dy == 0 and dx >0:
+        angle = 0
+    elif dy == 0 and dx <0:
+        angle = 180
+    elif dy > 0 and dx >0:
+        angle = atan(dy/dx) * 180/pi
+    elif dy >0 and dx <0:
+        angle = atan(abs(dy/dx))* 180/pi + 90
+    elif dy <0 and dx <0:
+        angle = atan(abs(dy / dx))* 180/pi + 180
+    else:
+        #小于零
+        angle = atan(abs(dy / dx))* 180/pi + 270
+
+    return angle
+
 
 def timestamp2second(time1,time2):
 
@@ -81,5 +109,7 @@ def search_file(pattern,path):
     filenames = [ path.split("\\")[1]  for path in paths]
     filenames = [os.path.join(path,name) for name in filenames]
     return filenames
+
 if __name__ == "__main__":
-    print(search_file("interval_[0-1]_*_train.tfrecords","G:/all_data/tfrecords/"))
+    #print(search_file("interval_[0-1]_*_train.tfrecords","G:/all_data/tfrecords/"))
+    print(jwd2angle(39.974879,116.33258899999998,39.97487,116.332673))

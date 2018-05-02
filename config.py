@@ -65,6 +65,10 @@ class Config(object):
 
         self.shuffle = dconf["shuffle"]
 
+        self.keep_prob = dconf["keep_prob"]
+
+        self.discretization_width = dconf["discretization_width"]
+
 
 
 class TrainingConfig(object):

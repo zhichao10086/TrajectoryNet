@@ -20,6 +20,8 @@ class Model(object):
         self.init_config(config)
 
         self.current_step = tf.Variable(0,trainable=False)
+        self._learning_rate  = tf.train.exponential_decay(self.learning_rate,self.current_step,decay_steps=600,decay_rate=0.98,staircase=True)
+
 
         #self.current_step = tf.Variable(0)
         if self.net_type == NetType.DNN:
@@ -49,6 +51,7 @@ class Model(object):
         self.use_tfrecord = conf.use_tfrecord
         self.tfrecord_path = conf.tfrecord_path
         self.shuffle = conf.shuffle
+        self.keep_prob = conf.keep_prob
 
     #init 创建模型时的配置
     def init_config(self,config):
@@ -65,58 +68,13 @@ class Model(object):
         self.activation = config.activation  # 激励函数
         self.batch_size = config.batch_size  # batch尺寸
 
-    #init rnn_nv1数据从tfrecords
-    def init_rnn_nv1_data_from_tfrecords(self):
-
-        self._filenames = tf.placeholder(tf.string)
-        if self.is_training:
-            filenames = util.search_file("interval_[1-5]_label_[0-3]_train.tfrecords", self.tfrecord_path)
-        elif self.is_validation:
-            filenames = util.search_file("interval_[1-5]_label_[0-3]_valid.tfrecords", self.tfrecord_path)
-        else:
-            filenames = util.search_file("interval_[1-5]_label_[0-3]_test.tfrecords", self.tfrecord_path)
-
-        filename_queue = tf.train.string_input_producer(self._filenames,num_epochs=1,shuffle= self.shuffle)
-        # 读取器
-        reader = tf.TFRecordReader()
-        # 读取一个example
-        _, serialized_ex = reader.read(filename_queue)
-        # 解析一个
-        features = tf.parse_single_example(serialized_ex, features=param.feature)
-        # speed_sec = tf.decode_raw(features[param.SPEED_SEC], tf.int64)
-        # avg_speed = tf.decode_raw(features[param.AVG_SPEED], tf.int64)
-        # std_speed = tf.decode_raw(features[param.STD_SPEED], tf.int64)
-        speed_sec = tf.reshape(tf.decode_raw(features[param.SPEED_SEC], tf.int64), [self.exp_seq_len, param.width])
-        avg_speed = tf.reshape(tf.decode_raw(features[param.AVG_SPEED], tf.int64), [self.exp_seq_len, param.width])
-        std_speed = tf.reshape(tf.decode_raw(features[param.STD_SPEED], tf.int64), [self.exp_seq_len, param.width])
-        acc_sec = tf.reshape(tf.decode_raw(features[param.ACC_SEC], tf.int64), [self.exp_seq_len, param.width])
-        mean_acc = tf.reshape(tf.decode_raw(features[param.MEAN_ACC], tf.int64), [self.exp_seq_len, param.width])
-        std_acc = tf.reshape(tf.decode_raw(features[param.STD_ACC], tf.int64), [self.exp_seq_len, param.width])
-        early = tf.cast(features[param.EARLY], tf.int32)
-        label = tf.cast(features[param.LABEL], tf.int32)
-
-        feature_name_list = [param.SPEED_SEC, param.AVG_SPEED, param.STD_SPEED, param.ACC_SEC, param.MEAN_ACC,
-                             param.STD_ACC]
-
-        seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc], axis=1)
-        seq_float32 = tf.cast(seq,tf.float32)
-        batch_x, batch_early, batch_label = tf.train.shuffle_batch([seq_float32, early, label], batch_size=self.batch_size, num_threads=5,
-                                                                   capacity=512, min_after_dequeue=128)
-
-        self._input_data = tf.transpose(batch_x,[1,0,2])
-        self._targets = batch_label
-        self._valid_target = self._targets
-
-        # 用于提前结束每个batch
-        self._early_stop = batch_early
-
     def init_rnn_type_nv1(self):
 
         # 输入数据
         self._input_data = tf.placeholder(tf.float32, [self.exp_seq_len, self.batch_size, self.len_features],
                                           name="input_data")
         self._targets = tf.placeholder(tf.int32,[self.batch_size],name="label")
-        self._valid_target = self._targets
+        #self._valid_target = self._targets
 
         # 用于提前结束每个batch
         self._early_stop = tf.placeholder(tf.int32, shape=[self.batch_size], name="early-stop")
@@ -148,20 +106,20 @@ class Model(object):
 
         # 获得混淆矩阵
         with tf.name_scope("confusion_matrix") as scope:
-            self._confusion_matrix = tf.confusion_matrix(self._valid_target, self._digit_predictions)
+            self._confusion_matrix = tf.confusion_matrix(self._targets, self._digit_predictions)
 
         with tf.name_scope("cross_entropy") as scope:
-            self._onehot_labels = tf.one_hot(self._valid_target,depth=self.num_classes)
+            self._onehot_labels = tf.one_hot(self._targets,depth=self.num_classes)
             self._cost = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits(labels=self._onehot_labels,logits=self._predictions))
             self.add_l2_regulation()
 
         with tf.name_scope("accuracy") as scope:
-            self._correct_prediction = tf.equal(self._valid_target, self._digit_predictions)
+            self._correct_prediction = tf.equal(self._targets, self._digit_predictions)
             self._accuracy = tf.reduce_mean(tf.cast(self._correct_prediction,tf.float32))
-            #self._accuracy = tf.metrics.accuracy( self._valid_target,self._digit_predictions)[1]
+            #self._accuracy = tf.metrics.accuracy( self._target,self._digit_predictions)[1]
 
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,global_step=self.current_step)
+            self._train_op = tf.train.AdamOptimizer(self._learning_rate).minimize(self._cost,global_step=self.current_step)
 
         if self.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
@@ -200,22 +158,26 @@ class Model(object):
         with tf.name_scope("rnn_outputs"):
             self.get_rnn_outputs(cell)
         # 获得去除padding的标签
-        self._valid_target = self.get_valid_sequence(
-            tf.reshape(self._targets, [self.exp_seq_len * self.batch_size]),
-            self.num_classes)
+        # self._valid_target = self.get_valid_sequence(
+        #     tf.reshape(self._targets, [self.exp_seq_len * self.batch_size]),
+        #     self.num_classes)
         # softmax层的权重
         with tf.name_scope("softmax-layer") as scope:
             self.get_softmax_layer_output()
 
         # 获得混淆矩阵
         with tf.name_scope("confusion-matrix") as scope:
-            self._confusion_matrix = tf.confusion_matrix(self._valid_target, self._digit_predictions)
+            self._confusion_matrix = tf.confusion_matrix(tf.reshape(self._targets,[self.batch_size*self.exp_seq_len]), self._digit_predictions)
 
         with tf.name_scope("seq2seq-loss-by-example") as scpoe:
-            self._loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-                [self._predictions],
-                [self._valid_target],
-                [tf.ones([int(self.getTensorShape(self._valid_target)[0])])])
+            self._loss = tf_ct.seq2seq.sequence_loss(tf.reshape(self._predictions,[self.batch_size,self.exp_seq_len,self.num_classes])
+                                        ,self.targets,
+                                        tf.ones([self.batch_size,self.exp_seq_len]))
+            # self._loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
+            #     [self._predictions],
+            #     [self._targets],
+            #     [tf.ones([tf.cast(self.getTensorShape(self._targets)[0],tf.int32)])])
+
             self._cost = tf.reduce_mean(self._loss)
             self.add_l2_regulation()
             # 计算l2cost
@@ -226,11 +188,10 @@ class Model(object):
             # #总cost为 基础cost + l2cost
             # #self._regularization_cost = tf.reduce_sum(tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES))
             # self._cost = self._cost+self._regularization_cost
-
-            self._accuracy = tf.contrib.metrics.accuracy(self._digit_predictions, self._valid_target)
+            self._accuracy = tf_ct.metrics.accuracy(self._digit_predictions, tf.reshape(self._targets,[self.batch_size*self.exp_seq_len]))
 
         with tf.name_scope("optimization") as scope:
-            self._train_op = tf.train.AdamOptimizer(self.learning_rate).minimize(self._cost,global_step=self.current_step)
+            self._train_op = tf.train.AdamOptimizer(self._learning_rate).minimize(self._cost,global_step=self.current_step)
 
         if self.tensorboard:
             self.w_hist = tf.summary.histogram("weights", self._softmax_w)
@@ -241,10 +202,62 @@ class Model(object):
             self.mse_summary_test = tf.summary.scalar("test-cross-entropy-cost", self._cost)
 
     def init_dnn_type(self):
-        pass
+        # 输入数据
+        self._input_data = tf.placeholder(tf.float32, [None, self.len_features],
+                                          name="input_data")
+        self._targets = tf.placeholder(tf.int32, [None], name="label")
+
+        with tf.name_scope("init_weights") as scope:
+            weights,biases = self.init_mutil_dnn_weights(self.len_features,self.hidden_size,self.num_classes,self.num_layers)
+
+        with tf.name_scope("mlp") as scope:
+
+            self._predictions = self.mlp(self._input_data,weights,biases,self.keep_prob)
+
+        with tf.name_scope("cost") as scope:
+
+            self._onehot_labels = tf.one_hot(self._targets, depth=self.num_classes)
+
+            self._cost = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._onehot_labels,logits=self._predictions))
+
+            self.add_l2_regulation()
+
+
+        with tf.name_scope("accuracy") as scope:
+            self._prob_predictions = tf.nn.softmax(self._predictions)
+            # 获得每个数据最大的索引
+            self._digit_predictions = tf.argmax(self._prob_predictions, axis=1, output_type=tf.int32)
+
+            self._correct_prediction = tf.equal(self._targets, self._digit_predictions)
+            self._accuracy = tf.reduce_mean(tf.cast(self._correct_prediction,tf.float32))
+            #self._accuracy = tf.metrics.accuracy( self._valid_target,self._digit_predictions)[1]
+
+        with tf.name_scope("optimization") as scope:
+            self._train_op = tf.train.AdamOptimizer(self._learning_rate).minimize(self._cost,global_step=self.current_step)
 
     def init_cnn_type(self):
         pass
+
+    def init_mutil_dnn_weights(self,ils, hls, ols,hl_num):
+        weights, bias = {}, {}
+        stddev = 0.1
+        for i in range(hl_num + 1):
+            fan_in = ils if i == 0 else hls
+            fan_out = ols if i == hl_num else hls
+            weights[i] = tf.get_variable("weight_" + str(i),shape=[fan_in, fan_out])
+            bias[i] = tf.get_variable("bias_"+str(i),shape = [fan_out])
+        return weights, bias
+
+    def mlp(self,_x, _w, _b, _keep_prob):
+        layers = {}
+        for i in range(len(_w)):
+            if i == 0:
+                layers[i] = tf.nn.dropout(self.activation(tf.add(tf.matmul(_x, _w[i]), _b[i])), _keep_prob)
+            elif i < len(_w) - 1:
+                layers[i] = tf.nn.dropout(self.activation(tf.add(tf.matmul(layers[i - 1], _w[i]), _b[i])), _keep_prob)
+            else:
+                layers[i] = tf.add(tf.matmul(layers[i - 1], _w[i]), _b[i])
+        return layers[len(_w) - 1]
 
     def get_embeded_vec(self):
 
@@ -295,13 +308,19 @@ class Model(object):
                                               initial_state=self.initial_state,
                                               time_major=True,dtype=tf.float32)
             if self.net_type == NetType.RNN_NVN:
-                pass
+                outputs = tf.transpose(self._outputs, perm=[1, 0, 2])
+
+                self._output = tf.reshape(tf.concat(axis=0, values=outputs),
+                                         [self.exp_seq_len * self.batch_size, self.hidden_size])
+
+                #self._valid_output = self.get_valid_sequence(self._output, self.hidden_size)
+
             elif self.net_type == NetType.RNN_NV1:
                 if self.rnn_type == RNNType.LSTM :
                     state_h = self._state[-1]
-                    self._valid_output = state_h[-1]
+                    self._output = state_h[-1]
                 elif self.rnn_type == RNNType.GRU:
-                    self._valid_output = self._state[-1]
+                    self._output = self._state[-1]
 
 
         elif self.rnn_type == RNNType.LSTM_b or self.rnn_type == RNNType.GRU_b:
@@ -326,15 +345,15 @@ class Model(object):
                 self._output = tf.reshape(tf.concat(axis=0, values=outputs),
                                          [self.exp_seq_len * self.batch_size, self.hidden_size * 2])
                 # Remove padding here
-                self._valid_output = self.get_valid_sequence(self._output, self.hidden_size * 2)
+                #self._valid_output = self.get_valid_sequence(self._output, self.hidden_size * 2)
             elif self.net_type == NetType.RNN_NV1:
                 state_fw, state_bw = self._state
                 if self.rnn_type == RNNType.LSTM_b :
                     state_fw_h = state_fw[-1]
                     state_bw_h = state_bw[-1]
-                    self._valid_output = tf.concat(axis=1, values=[state_fw_h[-1], state_bw_h[-1]])
+                    self._output = tf.concat(axis=1, values=[state_fw_h[-1], state_bw_h[-1]])
                 elif self.rnn_type == RNNType.GRU_b:
-                    self._valid_output = tf.concat(axis=1,values=[state_fw[-1],state_bw[-1]])
+                    self._output = tf.concat(axis=1,values=[state_fw[-1],state_bw[-1]])
 
     def get_softmax_layer_output(self):
         if self.net_type == NetType.DNN:
@@ -347,11 +366,10 @@ class Model(object):
 
                 self._softmax_w = tf.get_variable("softmax_w", [self.hidden_size * 2, self.num_classes])
 
-
         # softmax层的bias
         self._softmax_b = tf.get_variable("softmax_b", [self.num_classes], initializer=self.bias_initializer)
 
-        self._predictions = tf.matmul(self._valid_output, self._softmax_w) + self._softmax_b
+        self._predictions = tf.matmul(self._output, self._softmax_w) + self._softmax_b
         # 概率
         self._prob_predictions = tf.nn.softmax(self._predictions)
         # 获得每个数据最大的索引
@@ -371,11 +389,11 @@ class Model(object):
     def get_valid_sequence(self, seq, feature_size):
         """remove padding from sequences"""
         if self.is_training:
-            stop = self.train_seq_len
+            stop = self._early_stop
         elif self.is_validation:
-            stop = self.valid_seq_len
+            stop = self._early_stop
         else:
-            stop = self.test_seq_len
+            stop = self._early_stop
         valid_sequence_list = []
         for i in range(self.batch_size):
             if len(tf.Tensor.get_shape(seq)) == 2:
@@ -406,13 +424,8 @@ class Model(object):
         return self._prob_predictions
 
     @property
-    def filenames(self):
-        return self._filenames
-
-    @property
     def input_data(self):
         return self._input_data
-
 
     @property
     def targets(self):

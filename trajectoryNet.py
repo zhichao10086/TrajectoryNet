@@ -15,10 +15,11 @@ from data_funs import Data
 import util
 import param
 
+
 conf = config.Config("data/config.json")
-log_path = "./logdir/tfrecord/"
-data_path = "./data/transportation_feature_en_1_interval_1&2_expand_all/"
-tfrecords_data_path = "G:/all_data/tfrecords_seq_50/"
+log_path = "./logdir/tf_record_features_9/"
+data_path = "./data/transportation_feature_en_1/"
+tfrecords_data_path = "G:/all_data/tfrecords/"
 task = conf.task
 LOGGER = Log(log_path)
 len_features = conf.num_features * param.WIDTH
@@ -96,7 +97,6 @@ def loadData_rnn_nvn():
     test_data = (X_test, y_test, stop_test)
     val_data = (X_valid, y_valid, stop_valid)
 
-
     #获得训练集，测试集，验证集的序列长度数组
     #eg train_seq_len  value = [250,250,250,55,250,250,250......]
     train_seq_len = mmsi[1][train_index]
@@ -105,7 +105,6 @@ def loadData_rnn_nvn():
 
     train_config = config.TrainingConfig(True, False,False, conf.batch_size,len_features=x.shape[2],rnn_type=RNNType.GRU_b)
     train_config.train_seq_len = train_seq_len
-
 
     test_config = config.TrainingConfig(False,False,True,len(test_index),len_features=x.shape[2],rnn_type=RNNType.GRU_b)
     test_config.test_seq_len = test_seq_len
@@ -136,6 +135,7 @@ def load_data_rnn_nv1(classes):
         # data_file  = data_file_name +str(i) +".npy"
         index_df = pd.DataFrame(pd.read_csv(data_file_name_exp +"_"+ str(i) + "_seg_index.csv"))
         features_arr = np.load(data_file_name_exp + str(i) + ".npy")
+        print(features_arr.shape)
         features_arr = features_arr[:, 0:len_features]
         index_arr = np.array(index_df.iloc[:, [1, 2]].T)
         # index shape = [2,总个数]
@@ -387,6 +387,7 @@ def evaluate_model(sess, minibatch):
 
     return result_train + result_test + result_valid
 
+#
 def evaluate_model_all(sess,epoch):
     result_train = run_batch_all(sess, train_model, train_data, tf.no_op(), epoch)
     result_valid = run_batch_all(sess, valid_model, valid_data, tf.no_op(), epoch)
@@ -404,6 +405,7 @@ def evaluate_model_all(sess,epoch):
 
     return result_train + result_test + result_valid
 
+#npz文件方式
 def evaluate_model_quick(sess,epoch):
     print("开始测试训练集")
     result_train = run_batch_quick(sess, train_model, train_data, tf.no_op(), epoch)
@@ -466,56 +468,58 @@ def evaluate_from_tfrecords(iter):
     print("Test  cost {0:0.3f}, Acc {1:0.3f}".format(
         test_cost, test_acc))
 
-def evaluate_from_tfrecord_dataset(sess, model, eval_op):
-    if model.is_validation:
-        valid_data_set = make_dataset_from_tfrecord_file(param.valid_file_pattern, conf.batch_size, 1)
-        valid_data_iterator = valid_data_set.make_initializable_iterator()
-        valid_next_element = valid_data_iterator.get_next()
+def evaluate_from_tfrecord_dataset(net_type,sess, model,next_element, eval_op,epoch):
 
-        sess.run(valid_data_iterator.initializer)
-        cost_list = []
-        acc_list = []
-        try:
-            while True:
-                input, early, label = sess.run(valid_next_element)
-                print(input.shape)
+    cost_list = []
+    acc_list = []
+    count = 0
+    try:
+        while True:
+            input, early, label = sess.run(next_element)
+
+            if net_type == NetType.RNN_NV1:
+
                 if input.shape[0] < conf.batch_size:
+                    print(input.shape)
                     break
-                input = np.transpose(input,[1,0,2])
-                cost, acc = sess.run(fetches=[model.cost, model.accuracy], feed_dict={model.input_data: input,
-                                                                                      model.early_stop: early,
-                                                                                      model.targets: label})
-                cost_list.append(cost)
-                acc_list.append(acc)
-
-        except tf.errors.OutOfRangeError:
-            return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
-        return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
-
-    if model.is_test:
-        test_data_set = make_dataset_from_tfrecord_file(param.test_file_pattern, conf.batch_size, 1)
-        test_data_iterator = test_data_set.make_initializable_iterator()
-        test_next_element = test_data_iterator.get_next()
-
-        sess.run(test_data_iterator.initializer)
-        cost_list = []
-        acc_list = []
-        try:
-            while True:
-                input, early, label = sess.run(test_next_element )
-                print(input.shape)
-                if input.shape[0] < 128:
+                input = np.transpose(input, [1, 0, 2])
+            elif net_type == NetType.RNN_NVN:
+                if input.shape[0] < conf.batch_size:
+                    print(input.shape)
                     break
-                input = np.transpose(input,[1,0,2])
-                cost, acc = sess.run(fetches=[model.cost, model.accuracy], feed_dict={model.input_data: input,
-                                                                                      model.early_stop: early,
-                                                                                      model.targets: label})
-                cost_list.append(cost)
-                acc_list.append(acc)
+                new_label = np.zeros([conf.batch_size, label.shape[0]], np.int32)
+                for i in range(conf.batch_size):
+                    new_label[i, 0:early[i]] = label[i]
+                    new_label[i, early[i]:] = 0
+                label = new_label
+            elif net_type == NetType.DNN:
+                list_input = []
+                list_label = []
+                for i in range(conf.batch_size):
+                    list_input.append(input[i, 0:early[i], :])
+                    new_label = np.zeros([early[i]], np.int32)
+                    new_label[:] = label[i]
+                    list_label.append(new_label)
+                input = np.concatenate(tuple(list), axis=0)
+                label = np.concatenate(tuple(list_label), axis=1)
+            #print(input.shape)
 
-        except tf.errors.OutOfRangeError:
-            return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
-        return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
+            cost, acc,confus_mat = sess.run(fetches=[model.cost, model.accuracy,model.confusion_matrix], feed_dict={model.input_data: input,
+                                                                                  model.early_stop: early,
+                                                                                  model.targets: label})
+            if model.is_validation:
+                LOGGER.training_log("验证集 " + str(epoch))
+            elif model.is_test:
+                LOGGER.training_log("测试集 " + str(epoch))
+            LOGGER.training_log(str(confus_mat))
+            cost_list.append(cost)
+            acc_list.append(acc)
+            count += 1
+
+    except tf.errors.OutOfRangeError:
+        print("超出界限！！！")
+    print( count)
+    return sum(cost_list) / len(cost_list), sum(acc_list) / len(acc_list)
 
 #minbatch训练方法
 def run_batch(session, model, data, eval_op, minibatch):
@@ -664,6 +668,7 @@ def run_batch_all(session,model,data,eval_op,epoch):
                     accuracy_mean = sum(correct) / float(epoch_size)
                     return (cost_mean, accuracy_mean)
 
+#quick 代表所有数据在npz文件里
 def run_batch_quick(session,model,data,eval_op,epoch):
 
     if model.is_training:
@@ -835,7 +840,10 @@ def rnn_nv1_model(is_quick):
     global train_data
     global test_data
     global valid_data
-    #train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
+    if is_quick:
+        train_data,valid_data,test_data=load_data_rnn_nv1_quick(conf.num_classes)
+    else:
+        train_data, valid_data, test_data = load_data_rnn_nv1(conf.num_classes)
     #print("数据加载完毕......")
     train_conf = None
     valid_conf = None
@@ -903,16 +911,13 @@ def rnn_nv1_model(is_quick):
                 run_batch_quick(sess,train_model,train_data,train_model.train_op,i)
                 evaluate_model_quick(sess,i)
         else:
-            sess.run(tf.local_variables_initializer())
-            coord = tf.train.Coordinator()
-            threads = tf.train.start_queue_runners(sess=sess, coord=coord)
+            for i in range(conf.num_epochs):
+                print("第 {0}次epoch".format(i))
+                #minibatch = run_batch(sess, train_model, train_data, train_model.train_op, minibatch)
+                run_batch_all(sess,train_model,train_data,train_model.train_op,i)
+                evaluate_model_all(sess,i)
 
-            run_batch_from_tfrecords(sess,coord,train_model,train_model.train_op)
-
-            coord.request_stop()
-            coord.join(threads)
-
-#队列版
+#队列版  未完善
 def rnn_nv1_model_tfrecord():
     global train_data
     global test_data
@@ -999,39 +1004,74 @@ def rnn_nv1_model_tfrecord():
         coord.join(threads)
 
 #dataset版
-def rnn_nv1_model_tfrecord_dataset():
-    if conf.rnn_type == "lstm_b":
-        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.LSTM_b)
-        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.LSTM_b)
-        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                   rnn_type=RNNType.LSTM_b)
-    elif conf.rnn_type == "gru_b":
-        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU_b)
-        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU_b)
-        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                   rnn_type=RNNType.GRU_b)
-    elif conf.rnn_type == "gru":
-        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU)
-        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU)
-        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                   rnn_type=RNNType.GRU)
-    else:
-        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU)
-        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                    rnn_type=RNNType.GRU)
-        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
-                                   rnn_type=RNNType.GRU)
+def model_tfrecord_dataset(net_type):
+    if net_type == NetType.RNN_NV1:
+        if conf.rnn_type == "lstm_b":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.LSTM_b)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.LSTM_b)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                       rnn_type=RNNType.LSTM_b)
+        elif conf.rnn_type == "gru_b":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU_b)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU_b)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                       rnn_type=RNNType.GRU_b)
+        elif conf.rnn_type == "gru":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                       rnn_type=RNNType.GRU)
+        else:
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                        rnn_type=RNNType.GRU)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NV1,
+                                       rnn_type=RNNType.GRU)
+    elif net_type == NetType.RNN_NVN:
+        if conf.rnn_type == "lstm_b":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.LSTM_b)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.LSTM_b)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                       rnn_type=RNNType.LSTM_b)
+        elif conf.rnn_type == "gru_b":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU_b)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU_b)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                       rnn_type=RNNType.GRU_b)
+        elif conf.rnn_type == "gru":
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                       rnn_type=RNNType.GRU)
+        else:
+            train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU)
+            valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                        rnn_type=RNNType.GRU)
+            test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.RNN_NVN,
+                                       rnn_type=RNNType.GRU)
+    elif net_type == NetType.DNN:
+        train_conf = TrainingConfig(True, False, False, conf.batch_size, len_features, net_type=NetType.DNN)
+        valid_conf = TrainingConfig(False, True, False, conf.batch_size, len_features, net_type=NetType.DNN)
+        test_conf = TrainingConfig(False, False, True, conf.batch_size, len_features, net_type=NetType.DNN)
+
 
     config = tf.ConfigProto()
-    config.gpu_options.allow_growth = True
-    # config.gpu_options.per_process_gpu_memory_fraction = 0.7  # 占用GPU90%的显存
+    #config.gpu_options.allow_growth = True
+    config.gpu_options.per_process_gpu_memory_fraction = 0.25  # 占用GPU90%的显存
     initializer = tf.random_uniform_initializer(0, conf.init_scale)
 
     with tf.variable_scope("model", reuse=False, initializer=initializer):
@@ -1046,32 +1086,77 @@ def rnn_nv1_model_tfrecord_dataset():
         global valid_model
         valid_model = Model(conf, valid_conf)
 
-    train_data_set = make_dataset_from_tfrecord_file(param.train_file_pattern,conf.batch_size,conf.num_epochs)
+    LOGGER.training_log(str(conf.__dict__))
+
+    train_data_set = make_dataset_from_tfrecord_file(param.train_file_pattern,conf.batch_size,True,1)
     train_data_iterator = train_data_set.make_initializable_iterator()
     train_next_element = train_data_iterator.get_next()
-    i = 0
+
+    valid_data_set = make_dataset_from_tfrecord_file(param.valid_file_pattern, conf.batch_size, False,1)
+    valid_data_iterator = valid_data_set.make_initializable_iterator()
+    valid_next_element = valid_data_iterator.get_next()
+
+    test_data_set = make_dataset_from_tfrecord_file(param.test_file_pattern, conf.batch_size, False,1)
+    test_data_iterator = test_data_set.make_initializable_iterator()
+    test_next_element = test_data_iterator.get_next()
+
     with tf.Session(config=config) as sess:
-        sess.run(train_data_iterator.initializer)
         sess.run(tf.global_variables_initializer())
-        try:
-            while True:
-                # 通过session每次从数据集中取值
-                input,early,label = sess.run(fetches=train_next_element)
-                if input.shape[0] < 128:
-                    break
-                input = np.transpose(input,[1,0,2])
-                sess.run(fetches=train_model.train_op, feed_dict={train_model.input_data:input,
-                                                                  train_model.early_stop:early,
-                                                                  train_model.targets:label})
-                print("训练集第%d个batch" %(i))
-                if i % 100 == 0 :
-                    valid_cost,valid_acc = evaluate_from_tfrecord_dataset(sess,valid_model,tf.no_op())
-                    test_cost,test_acc = evaluate_from_tfrecord_dataset(sess,test_model,tf.no_op())
-                    print("验证集cost:%f,acc:%f" %(valid_cost,valid_acc))
-                    print("测试集cost:%f,acc:%f" %(test_cost,test_acc))
-                i = i + 1
-        except tf.errors.OutOfRangeError:
-            print("end!")
+        sess.run(tf.local_variables_initializer())
+
+        for epoch in range(conf.num_epochs):
+            sess.run(train_data_iterator.initializer)
+            i = 0
+            try:
+                while True:
+                    input, early, label = sess.run(fetches=train_next_element)
+                    # 通过session每次从数据集中取值
+                    if  net_type == NetType.RNN_NV1:
+
+                        if input.shape[0] < 128:
+                            print(input.shape)
+                            break
+                        input = np.transpose(input, [1, 0, 2])
+                    elif net_type == NetType.RNN_NVN:
+                        if input.shape[0] < 128:
+                            break
+                        new_label = np.zeros([conf.batch_size,label.shape[0]],np.int32)
+                        for i in range(conf.batch_size):
+                            new_label[i,0:early[i]] = label[i]
+                            new_label[i,early[i]:] = 0
+                        label = new_label
+                    elif net_type == NetType.DNN:
+                        list_input = []
+                        list_label = []
+                        for i in range(conf.batch_size):
+                            list_input.append(input[i,0:early[i],:])
+                            new_label = np.zeros([early[i]],np.int32)
+                            new_label[:] = label[i]
+                            list_label.append(new_label)
+                        input = np.concatenate(tuple(list_input),axis=0)
+                        label = np.concatenate(tuple(list_label),axis=1)
+
+                    sess.run(fetches=train_model.train_op, feed_dict={train_model.input_data:input,
+                                                                      train_model.early_stop:early,
+                                                                      train_model.targets:label})
+                    print("训练集第%d个batch" %(i))
+                    if i % 100 == 0 and i >0:
+                        train_cost,train_acc = sess.run([train_model.cost,train_model.accuracy],feed_dict={train_model.input_data:input,
+                                                                      train_model.early_stop:early,
+                                                                      train_model.targets:label})
+                        sess.run(valid_data_iterator.initializer)
+                        valid_cost,valid_acc = evaluate_from_tfrecord_dataset(net_type,sess,valid_model,valid_next_element,tf.no_op(),i/100)
+                        sess.run(test_data_iterator.initializer)
+                        test_cost,test_acc = evaluate_from_tfrecord_dataset(net_type,sess,test_model,test_next_element,tf.no_op(),i/100)
+                        print("训练集cost:%f,acc:%f" %(train_cost,train_acc))
+                        print("验证集cost:%f,acc:%f" %(valid_cost,valid_acc))
+                        print("测试集cost:%f,acc:%f" %(test_cost,test_acc))
+                        LOGGER.summary_log((train_cost,train_acc,valid_cost,valid_acc,test_cost,test_acc),i)
+                    i = i + 1
+            except tf.errors.OutOfRangeError:
+                print("第%d  epoch end!" % (epoch))
+            print("共 %d 个batch" %(i))
+            print("第%d  epoch end!" % (epoch))
 
 def __parse_function(example_proto):
     feature = param.feature
@@ -1082,25 +1167,31 @@ def __parse_function(example_proto):
     acc_sec = tf.reshape(tf.decode_raw(features[param.ACC_SEC], tf.int64), [conf.exp_seq_len, param.WIDTH])
     mean_acc = tf.reshape(tf.decode_raw(features[param.MEAN_ACC], tf.int64), [conf.exp_seq_len, param.WIDTH])
     std_acc = tf.reshape(tf.decode_raw(features[param.STD_ACC], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    head = tf.reshape(tf.decode_raw(features[param.HEAD], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    head_mean = tf.reshape(tf.decode_raw(features[param.HEAD_MEAN], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    std_head = tf.reshape(tf.decode_raw(features[param.STD_HEAD], tf.int64), [conf.exp_seq_len, param.WIDTH])
     early = tf.cast(features[param.EARLY], tf.int32)
     label = tf.cast(features[param.LABEL], tf.int32)
 
-    seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc], axis=1)
+    seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc,head,head_mean,std_head], axis=1)
     seq_float32 = tf.cast(seq, tf.float32)
 
     return seq_float32,early,label
 
-
-def make_dataset_from_tfrecord_file(file_name_pattern,batch_size=32,repeat = 1):
+def make_dataset_from_tfrecord_file(file_name_pattern,batch_size=32,is_shuffle=True,repeat = 1):
     filenames = util.search_file(file_name_pattern, tfrecords_data_path)
-    dataset = tf.data.TFRecordDataset(filenames)
+    filenames = np.array(filenames)
+    perm = np.random.permutation(len(filenames))
+    dataset = tf.data.TFRecordDataset(filenames[perm])
     dataset = dataset.map(__parse_function)
-    dataset = dataset.shuffle(10000).batch(batch_size)
+    if is_shuffle:
+        dataset = dataset.shuffle(100000)
+    dataset = dataset.batch(batch_size)
     dataset = dataset.repeat(repeat)
 
     return dataset
 
-#切割数据为预期长度的npy文件
+#从npy获取数据 切割数据为预期长度的npy文件
 def slice_seq(classes):
     # 分训练集与测试集 验证集 8：1：1
     train_data_all = None
@@ -1131,7 +1222,7 @@ def slice_seq(classes):
         np.save(data_path+"slice_label" + str(i)+"_"+str(conf.exp_seq_len)+".npy",data)
         np.save(data_path+"slice_index"+str(i)+".npy",index_arr)
 
-#分割数据集，并写为npz文件
+#分割数据集，合并数据 并写为npz文件
 def partition_data_set(classes):
     out_data_path = "G:/all_data/"
     # 分训练集与测试集 验证集 8：1：1
@@ -1223,7 +1314,8 @@ def partition_data_set(classes):
     np.savez(out_data_path + "train_data_set.npz", train_data=train_data_all, train_label=train_label_all,train_early_stop=train_early_all)
 
 def main():
-    rnn_nv1_model_tfrecord_dataset()
+    model_tfrecord_dataset(NetType.RNN_NV1)
+    #rnn_nv1_model(False)
 
 if __name__ == "__main__":
     #slice_seq(4)
