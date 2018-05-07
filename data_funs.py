@@ -307,7 +307,7 @@ class Data:
                     avg_speed = np.mean(feature_arr[2:,0],axis=0)
                     acc_mean = np.mean(feature_arr[2:,1],axis=0)
                     std_speed = np.std(feature_arr[2:,0],axis=0)
-                    std_acc = np.std(feature_arr[2:,1])
+                    std_acc = np.std(feature_arr[2:,1],axis=0)
                     head_mean = np.mean(np.abs(feature_arr[2:,6]),axis=0)
                     std_head = np.std(feature_arr[2:,6],axis=0)
                     feature_arr[2:,2] = std_speed

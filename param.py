@@ -39,12 +39,22 @@ class RNNType(Enum):
     LSTM_b = 2 # LSTM bidirectional
     GRU = 3 # GRU
     GRU_b = 4 # GRU, bidirectional
+    NORM_GRU = 5
+    NORM_GRU_b = 6
 
 class NetType(Enum):
+    DNN_MAXOUT = 0
     DNN  = 1
     CNN  = 2
     RNN_NV1 = 3
     RNN_NVN = 4
+
+class DirName(Enum):
+    DNN = "dnn/"
+    DNN_MAXOUT = "dnn_maxout/"
+    CNN = "cnn/"
+    RNN_NV1 = "rnn_nv1/"
+    RNN_NVN = "rnn_nvn/"
 
 class FeatureName(Enum):
     SPEED_SEC = "speed_sec"

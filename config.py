@@ -69,6 +69,10 @@ class Config(object):
 
         self.discretization_width = dconf["discretization_width"]
 
+        self.net_type = dconf["net_type"]
+
+        self.use_dropout = dconf["use_dropout"]
+
 
 
 class TrainingConfig(object):

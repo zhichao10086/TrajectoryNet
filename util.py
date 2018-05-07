@@ -1,6 +1,11 @@
 from math import radians, cos, sin, asin, sqrt,atan,pi
 import  os
 from glob import glob
+import param
+from param import RNNType
+from param import NetType
+from param import DirName
+from log import Log
 
 def jwd2dis(lat1,lon1,lat2,lon2):
     lat1,lon1,lat2,lon2 = map(radians,[lat1,lon1,lat2,lon2])
@@ -37,7 +42,6 @@ def jwd2angle(lat1,lon1,lat2,lon_2):
         angle = atan(abs(dy / dx))* 180/pi + 270
 
     return angle
-
 
 def timestamp2second(time1,time2):
 
@@ -109,6 +113,37 @@ def search_file(pattern,path):
     filenames = [ path.split("\\")[1]  for path in paths]
     filenames = [os.path.join(path,name) for name in filenames]
     return filenames
+
+def get_net_type(net_type):
+    return param.NetType(net_type)
+
+def get_rnn_type(rnn_type):
+    return param.RNNType(rnn_type)
+
+
+def init_environment(net_type,rnn_type):
+    log_path = "./logdir/shiyan/"
+    data_path = "./data/tfrecord9_data/"
+    if net_type == NetType.DNN:
+        data_dir = DirName.DNN.value
+        log_dir = DirName.DNN.value
+    elif net_type == NetType.DNN_MAXOUT:
+        data_dir = DirName.DNN_MAXOUT.value
+        log_dir = DirName.DNN_MAXOUT.value
+    elif net_type == NetType.RNN_NV1:
+        data_dir = DirName.RNN_NV1.value
+        log_dir = DirName.RNN_NV1.value
+    else:
+        data_dir = DirName.RNN_NVN.value
+        log_dir = DirName.RNN_NVN.value
+
+    log_path = log_path + log_dir
+    data_path = data_path + data_dir
+    net_name = str(NetType(net_type)).split(".")[-1]
+    nn_name = str(RNNType(rnn_type)).split(".")[-1]
+    LOGGER = Log(log_path, "_" + net_name + "_" + nn_name)
+
+    return log_path,data_path,LOGGER
 
 if __name__ == "__main__":
     #print(search_file("interval_[0-1]_*_train.tfrecords","G:/all_data/tfrecords/"))

@@ -3,16 +3,16 @@ import time
 
 class Log(object):
 
-    def __init__(self,path):
+    def __init__(self,path,name):
         self.train_log_path = path
         second = time.localtime(time.time())
         time_str = time.strftime('%Y-%m-%d-%H-%M-%S',second)
         #summary_log_file 初始化   由当前时间命名
-        self.summary_log_file_name =  "summary"+time_str +".csv"
+        self.summary_log_file_name =  "summary"+time_str +name+".csv"
         self.summary_log_file = open(path +self.summary_log_file_name,"w+")
 
         #training_log_file 由training+当前时间命名
-        self.train_log_file_name =  "training" + time_str + ".csv"
+        self.train_log_file_name =  "training" + time_str + name+".csv"
         self.train_log_file = open(path +self.train_log_file_name,"w+")
 
         self.addheader()
