@@ -1,11 +1,14 @@
 from enum import Enum
 import tensorflow as tf
 
-WIDTH = 20
+WIDTH = 30
+FENWEI_MAX = 0.95
+FILTER_K = 10
 
-train_file_pattern = "interval_[1-5]_train_*.tfrecords"
-valid_file_pattern = "interval_[1-5]_valid_*.tfrecords"
-test_file_pattern = "interval_[1-5]_test_*.tfrecords"
+
+train_file_pattern = "interval_[5]_train_*.tfrecords"
+valid_file_pattern = "interval_[5]_valid_*.tfrecords"
+test_file_pattern = "interval_[5]_test_*.tfrecords"
 
 
 SPEED_SEC = "speed_sec"
@@ -17,6 +20,9 @@ STD_ACC = "std_acc"
 HEAD = "head"
 HEAD_MEAN = "head_mean"
 STD_HEAD = "std_head"
+MAX_ACC = "max_acc"
+MAX_SPEED = "max_speed"
+MAX_HEAD = "max_head"
 EARLY = "early"
 LABEL = "label"
 
@@ -30,6 +36,9 @@ feature = {
         HEAD      : tf.FixedLenFeature([],tf.string),
         HEAD_MEAN : tf.FixedLenFeature([],tf.string),
         STD_HEAD  : tf.FixedLenFeature([],tf.string),
+        MAX_SPEED  : tf.FixedLenFeature([],tf.string),
+        MAX_ACC  : tf.FixedLenFeature([],tf.string),
+        MAX_HEAD  : tf.FixedLenFeature([],tf.string),
         EARLY   :   tf.FixedLenFeature([],tf.int64),
         LABEL:tf.FixedLenFeature([],tf.int64)
     }

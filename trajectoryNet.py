@@ -1134,7 +1134,7 @@ def model_tfrecord_dataset(net_type,rnn_type):
                     #print(input.shape)
                     if  net_type == NetType.RNN_NV1:
 
-                        if input.shape[0] < 128:
+                        if input.shape[0] < conf.batch_size:
                             print(input.shape)
                             break
                         input = np.transpose(input, [1, 0, 2])
@@ -1145,7 +1145,7 @@ def model_tfrecord_dataset(net_type,rnn_type):
 
                     #rnn_nvn网络
                     elif net_type == NetType.RNN_NVN:
-                        if input.shape[0] < 128:
+                        if input.shape[0] < conf.batch_size:
                             break
                         new_label = np.zeros([conf.batch_size,conf.exp_seq_len],np.int32)
                         for batch in range(conf.batch_size):
@@ -1178,7 +1178,7 @@ def model_tfrecord_dataset(net_type,rnn_type):
                                                                           train_model.early_stop:early,
                                                                           train_model.targets:label})
                     print("训练集第%d个batch" %(i))
-                    if i % 1256 == 0 and i >0:
+                    if i % 100 == 0 and i >0:
                         train_cost = 0
                         train_acc = 0
                         valid_cost = 0
@@ -1203,7 +1203,7 @@ def model_tfrecord_dataset(net_type,rnn_type):
                 LOGGER.training_log(str(save_path))
 
 #dataset 解析函数
-def __parse_function(example_proto):
+def __parse_function_9_features(example_proto):
     feature = param.feature
     features = tf.parse_single_example(example_proto,feature)
     speed_sec = tf.reshape(tf.decode_raw(features[param.SPEED_SEC], tf.int64), [conf.exp_seq_len, param.WIDTH])
@@ -1263,6 +1263,40 @@ def __parse_function_6_features(example_proto):
 
     return seq_float32, early, label
 
+def __parse_function_12_features(example_proto):
+    feature = param.feature
+    features = tf.parse_single_example(example_proto, feature)
+    speed_sec = tf.reshape(tf.decode_raw(features[param.SPEED_SEC], tf.int64),
+                           [conf.exp_seq_len, conf.discretization_width])
+    avg_speed = tf.reshape(tf.decode_raw(features[param.AVG_SPEED], tf.int64),
+                           [conf.exp_seq_len, conf.discretization_width])
+    std_speed = tf.reshape(tf.decode_raw(features[param.STD_SPEED], tf.int64),
+                           [conf.exp_seq_len, conf.discretization_width])
+    acc_sec = tf.reshape(tf.decode_raw(features[param.ACC_SEC], tf.int64),
+                         [conf.exp_seq_len, conf.discretization_width])
+    mean_acc = tf.reshape(tf.decode_raw(features[param.MEAN_ACC], tf.int64),
+                          [conf.exp_seq_len, conf.discretization_width])
+    std_acc = tf.reshape(tf.decode_raw(features[param.STD_ACC], tf.int64),
+                         [conf.exp_seq_len, conf.discretization_width])
+    head = tf.reshape(tf.decode_raw(features[param.HEAD], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    head_mean = tf.reshape(tf.decode_raw(features[param.HEAD_MEAN], tf.int64), [conf.exp_seq_len, param.WIDTH])
+    std_head = tf.reshape(tf.decode_raw(features[param.STD_HEAD], tf.int64), [conf.exp_seq_len, param.WIDTH])
+
+    max_speed = tf.reshape(tf.decode_raw(features[param.MAX_SPEED], tf.int64),
+                         [conf.exp_seq_len, conf.discretization_width])
+    max_acc = tf.reshape(tf.decode_raw(features[param.MAX_ACC], tf.int64),
+                         [conf.exp_seq_len, conf.discretization_width])
+    max_head = tf.reshape(tf.decode_raw(features[param.MAX_HEAD], tf.int64),
+                         [conf.exp_seq_len, conf.discretization_width])
+
+    early = tf.cast(features[param.EARLY], tf.int32)
+    label = tf.cast(features[param.LABEL], tf.int32)
+
+    seq = tf.concat([speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc,head,head_mean,std_head,max_speed,max_acc,max_head], axis=1)
+    seq_float32 = tf.cast(seq, tf.float32)
+
+    return seq_float32, early, label
+
 #创建dataset
 def make_dataset_from_tfrecord_file(file_name_pattern,batch_size=32,is_shuffle=True,repeat = 1):
     filenames = util.search_file(file_name_pattern, tfrecords_data_path)
@@ -1270,11 +1304,13 @@ def make_dataset_from_tfrecord_file(file_name_pattern,batch_size=32,is_shuffle=T
     perm = np.random.permutation(len(filenames))
     dataset = tf.data.TFRecordDataset(filenames[perm])
     if conf.num_features == 9:
-        dataset = dataset.map(__parse_function)
+        dataset = dataset.map(__parse_function_9_features)
     elif conf.num_features == 6:
         dataset = dataset.map(__parse_function_6_features)
     elif conf.num_features == 3:
         dataset = dataset.map(__parse_function_3_features)
+    elif conf.num_features == 12:
+        dataset = dataset.map(__parse_function_12_features)
     if is_shuffle:
         dataset = dataset.shuffle(100000)
     dataset = dataset.batch(batch_size)
@@ -1405,7 +1441,7 @@ def partition_data_set(classes):
     np.savez(out_data_path + "train_data_set.npz", train_data=train_data_all, train_label=train_label_all,train_early_stop=train_early_all)
 
 def main():
-        model_tfrecord_dataset(get_net_type(conf.net_type),get_rnn_type(conf.rnn_type))
+    model_tfrecord_dataset(get_net_type(conf.net_type),get_rnn_type(conf.rnn_type))
     #rnn_nv1_model(False)
 
 if __name__ == "__main__":

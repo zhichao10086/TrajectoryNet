@@ -14,6 +14,8 @@ from param import WIDTH
 from param import FeatureName
 import config
 import param
+from param import FENWEI_MAX
+from param import FILTER_K
 
 
 class Data:
@@ -348,6 +350,171 @@ class Data:
                 result_df.to_csv(datadir + user_id +"/user_features_interval_"+str(interval) +".csv",index=False,mode="w+")
                 user_data_file.close()
 
+        # 计算特征
+    @staticmethod
+    def caculate_feature_12(interval_list):
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        feature_num = 12
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+        for interval in interval_list:
+            print("处理%d" % (interval))
+            for user in user_list:
+                user_id = user[0:3]
+                user_data_name = datadir + user_id + "/userdata_interval_" + str(interval) + ".csv"
+                # user_data_name = datadir + user_id + "/userdata.csv"
+                print("开始处理", user_id)
+                user_data_file = open(user_data_name, "r")
+
+                # user_data_file = np.loadtxt(user_data_name,dtype=np.str,delimiter=",")
+                # label_list = user_data_file[:,-1]
+                # label_list = label_list.astype(int)
+                # label_unique,label_index,label_count = np.unique(label_list, return_counts=True, return_index=True)
+                # #print(label_unique,label_index,label_count)
+                #
+                #
+                # for i in range(1):
+                #     #一个label要使用的数组
+                #     #result = np.empty(shape=[label_count[i],feature_num],dtype=np.str_)
+                #     #一个label的索引在一个用户文件中
+                #     start = label_index[i]
+                #     end = label_index[i] + label_count[i]
+                #     #一个label索引对应的原始数据
+                #     data = user_data_file[start:end,:]
+                #     #经纬度 以及时间
+                #     lat_lon_time = data[:,[1,2,5]]
+                #     #将user_id,经纬度赋值给结果数组
+                #     #result[:,0:3] = data[:,0:3]
+                #
+                #     #计算特征  速度 加速度  开始点没有速度，第一个点没有加速度， 所以最后数组比原始数组少两个点
+                #     for i in range(1,len(lat_lon_time)):
+                #         dis = util.jwd2dis(lat_lon_time[i][0],lat_lon_time[i][1],lat_lon_time[i-1][0],lat_lon_time[i-1][1])
+                #         t = util.timestamp2second(lat_lon_time[i],lat_lon_time[i-1])
+                #
+                #     print(lat_lon_time)
+
+                # #user_data = user_data_file.readlines()
+                # 列名
+                col_name = ["user_id", "lat", "lon", "non-use", "alt", "timestamp", "date", "time", "label",
+                            "label_count"]
+                # 原始数据
+                raw_data_df = pd.DataFrame(pd.read_csv(user_data_file, header=None, names=col_name))
+                # 结果列名
+                result_col_name = ["user_id", "lat", "lon", "speed_sec", "acc_sec", "std_speed", "avg_speed",
+                                   "mean_acc", "std_acc", "head", "head_mean", "std_head","max_speed","max_acc","max_head", "date", "time", "label",
+                                   "seg_label"]
+                # 结果数据
+                result_df = pd.DataFrame(columns=result_col_name)
+
+                # 通过标签分组轨迹
+                label_gp = raw_data_df.groupby(by=col_name[-1])
+
+                for label_count, group in label_gp:
+                    # print(group)
+                    # print(len(group.index))
+                    # temp_result = pd.DataFrame(columns = result_col_name)
+                    # 特征数组
+                    # print("label_count",label_count)
+                    if (group.index[-1] - group.index[0]) < 2:
+                        print("丢弃本组数据")
+                        continue
+                    feature_arr = np.zeros(shape=[group.index[-1] - group.index[0] + 1, feature_num],
+                                           dtype=np.float64)
+                    fangweijiao = np.zeros(shape=[group.index[-1] - group.index[0] + 1], dtype=np.float64)
+                    # print(group)
+                    # print(len(group.index))
+                    offset = group.index[0]
+                    for ii in group.index[1:]:
+                        # row_result = pd.Series(index=result_col_name)
+                        dis = util.jwd2dis(group.loc[ii, "lat"], group.loc[ii, "lon"], group.loc[ii - 1, "lat"],
+                                           group.loc[ii - 1, "lon"])
+                        t = util.timestamp2second(group.loc[ii, "timestamp"], group.loc[ii - 1, "timestamp"])
+                        # 速度
+                        feature_arr[ii - offset][0] = dis / t
+                        if (ii > offset + 1):
+                            # 加速度
+                            # a = (v1-v0)/t
+                            feature_arr[ii - offset][1] = (feature_arr[ii - offset][0] -
+                                                           feature_arr[ii - 1 - offset][0]) / t
+
+                        fangweijiao[ii - offset] = util.jwd2angle(group.loc[ii, "lat"], group.loc[ii, "lon"],
+                                                                  group.loc[ii - 1, "lat"],
+                                                                  group.loc[ii - 1, "lon"])
+
+                    # 方向转换  正数代表作，负数代表右
+                    #print(fangweijiao)
+                    for k in range(2, len(fangweijiao)):
+                        #print(fangweijiao[k],fangweijiao[k-1])
+                        #print(fangweijiao[k] - fangweijiao[k-1])
+                        if fangweijiao[k] >= fangweijiao[k-1]:
+
+                            if fangweijiao[k] - fangweijiao[k - 1] <= 180:
+                                feature_arr[k][6] = fangweijiao[k] - fangweijiao[k - 1]
+                            else:
+                                feature_arr[k][6] = -(360 - (fangweijiao[k] - fangweijiao[k - 1]))
+                        else:
+                            if fangweijiao[k-1] - fangweijiao[k] <=180:
+                                feature_arr[k][6] = fangweijiao[k-1] - fangweijiao[k]
+                            else:
+                                feature_arr[k][6] = -(360 - (fangweijiao[k-1] - fangweijiao[k]))
+
+
+                    # 0 放的是速度 1放的是加速度
+                    avg_speed = np.mean(feature_arr[2:, 0], axis=0)
+                    acc_mean = np.mean(feature_arr[2:, 1], axis=0)
+                    std_speed = np.std(feature_arr[2:, 0], axis=0)
+                    std_acc = np.std(feature_arr[2:, 1], axis=0)
+                    head_mean = np.mean(np.abs(feature_arr[2:, 6]), axis=0)
+                    std_head = np.std(feature_arr[2:, 6], axis=0)
+                    max_speed = np.max(np.abs(feature_arr[2:,0]),axis=0)
+                    max_acc = np.max(np.abs(feature_arr[2:,1]),axis=0)
+                    max_head = np.max(np.abs(feature_arr[2:,6]),axis=0)
+                    #print(feature_arr[2:,6])
+                    feature_arr[2:, 2] = std_speed
+                    feature_arr[2:, 3] = avg_speed
+                    feature_arr[2:, 4] = acc_mean
+                    feature_arr[2:, 5] = std_acc
+                    feature_arr[2:, 7] = head_mean
+                    feature_arr[2:, 8] = std_head
+                    feature_arr[2:,9]  = max_speed
+                    feature_arr[2:, 10]= max_acc
+                    feature_arr[2:,11] = max_head
+                    feature_arr = feature_arr[2:, :]
+
+                    # print(feature_arr)
+                    result = pd.DataFrame(columns=result_col_name)
+                    # result["user_id"] = group["user_id"][2:len(group.index)]
+                    start = group.index[0] + 2
+                    end = group.index[-1]
+                    result["user_id"] = group.loc[start:end, "user_id"]
+                    result["lat"] = group.loc[start:end, "lat"]
+                    result["lon"] = group.loc[start:end, "lon"]
+                    # print(result.info(),length,feature_arr.shape)
+                    result["speed_sec"] = feature_arr[:, 0]
+                    result["acc_sec"] = feature_arr[:, 1]
+                    result["std_speed"] = feature_arr[:, 2]
+                    result["avg_speed"] = feature_arr[:, 3]
+                    result["mean_acc"] = feature_arr[:, 4]
+                    result["std_acc"] = feature_arr[:, 5]
+                    result["head"] = feature_arr[:, 6]
+                    result["head_mean"] = feature_arr[:, 7]
+                    result["std_head"] = feature_arr[:, 8]
+                    result["max_speed"] = feature_arr[:,9]
+                    result["max_acc"] = feature_arr[:,10]
+                    result["max_head"] = feature_arr[:,11]
+                    result["date"] = group.loc[start:end, "date"]
+                    result["time"] = group.loc[start:end, "time"]
+                    result["label"] = util.switch_mode(group.loc[start, "label"])
+                    result["seg_label"] = user_id + " " + str(group.loc[start, "label_count"])
+                    # 一组label最终结果dataframe
+                    result_df = result_df.append(result)
+
+                result_df.index = range(0, result_df.shape[0])
+                # result_df.to_csv(datadir + user_id + "/user_features.csv", index=False)
+                result_df.to_csv(datadir + user_id + "/user_features_interval_" + str(interval) + ".csv",
+                                 index=False, mode="w+")
+                user_data_file.close()
+
     @staticmethod
     def caculate_feature_max_min():
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
@@ -487,11 +654,69 @@ class Data:
 
         valiable_user_data.close()
 
+    @staticmethod
+    def features_status(interval_list):
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        out_path = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_status/"
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+
+        for interval in interval_list:
+            print("处理%d" %(interval))
+            users_df = pd.DataFrame()
+            for user in user_list:
+                user_id = user[0:3]
+                # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
+                # user_features_max_min_file = open(user_features_max_min_name,"r")
+                # # 原始数据
+                # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
+                # max_min_df = max_min_df.append(raw_data_df)
+                #
+                # user_features_max_min_file.close()
+                user_feature_file_name = datadir + user_id +"/user_features_interval_" + str(interval)+".csv"
+                user_feature_file = open(user_feature_file_name,"r")
+                raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
+                users_df = users_df.append(raw_data_df)
+
+            users_df.reset_index(drop=True)
+
+            pd.DataFrame(users_df[param.SPEED_SEC].describe()).to_csv(out_path+"before_" +param.SPEED_SEC + ".csv")
+            pd.DataFrame(users_df[param.AVG_SPEED].describe()).to_csv(out_path+"before_" +param.AVG_SPEED + ".csv")
+            pd.DataFrame(users_df[param.STD_SPEED].describe()).to_csv(out_path+"before_" +param.STD_SPEED + ".csv")
+            pd.DataFrame(users_df[param.ACC_SEC].describe()).to_csv(out_path+"before_" +param.ACC_SEC + ".csv")
+            pd.DataFrame(users_df[param.MEAN_ACC].describe()).to_csv(out_path+"before_" +param.MEAN_ACC + ".csv")
+            pd.DataFrame(users_df[param.STD_ACC].describe()).to_csv(out_path+"before_" +param.STD_ACC + ".csv")
+            pd.DataFrame(users_df[param.HEAD].describe()).to_csv(out_path+"before_" +param.HEAD + ".csv")
+            pd.DataFrame(users_df[param.HEAD_MEAN].describe()).to_csv(out_path+"before_" +param.HEAD_MEAN + ".csv")
+            pd.DataFrame(users_df[param.STD_HEAD].describe()).to_csv(out_path+"before_" +param.STD_HEAD + ".csv")
+
+
+
+            speed_sec = pd.DataFrame(Data.filter_box_quantile(users_df["speed_sec"], FILTER_K)).describe()
+            acc_sec = pd.DataFrame(Data.filter_box_quantile(users_df["acc_sec"], FILTER_K)).describe()
+            avg_speed = pd.DataFrame(Data.filter_box_quantile(users_df["avg_speed"], FILTER_K)).describe()
+            std_speed = pd.DataFrame(Data.filter_box_quantile(users_df["std_speed"], FILTER_K)).describe()
+            mean_acc = pd.DataFrame(Data.filter_box_quantile(users_df["mean_acc"], FILTER_K)).describe()
+            std_acc = pd.DataFrame(Data.filter_box_quantile(users_df["std_acc"], FILTER_K)).describe()
+            head = pd.DataFrame(Data.filter_box_quantile(users_df["head"], FILTER_K)).describe()
+            head_mean = pd.DataFrame(Data.filter_box_quantile(users_df["head_mean"], FILTER_K)).describe()
+            std_head = pd.DataFrame(Data.filter_box_quantile(users_df["std_head"], FILTER_K)).describe()
+
+            pd.DataFrame(speed_sec).to_csv(out_path+"after_"+param.SPEED_SEC +".csv")
+            pd.DataFrame(avg_speed).to_csv(out_path+"after_"+param.AVG_SPEED +".csv")
+            pd.DataFrame(std_speed).to_csv(out_path+"after_"+param.STD_SPEED +".csv")
+            pd.DataFrame(acc_sec).to_csv(out_path+"after_"+param.ACC_SEC +".csv")
+            pd.DataFrame(mean_acc).to_csv(out_path+"after_"+param.MEAN_ACC +".csv")
+            pd.DataFrame(std_acc).to_csv(out_path+"after_"+param.STD_ACC +".csv")
+            pd.DataFrame(head).to_csv(out_path+"after_"+param.HEAD +".csv")
+            pd.DataFrame(head_mean).to_csv(out_path+"after_"+param.HEAD_MEAN +".csv")
+            pd.DataFrame(std_head).to_csv(out_path+"after_"+param.STD_HEAD +".csv")
+
     #离散化
     @staticmethod
     def discretization(interval_list):
         datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
-        out_path = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_head/"
+        out_path = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_95_15/"
         feature_num = 9
         valiable_user_data = open("./data/have_label_user.txt", "r")
         user_list = valiable_user_data.readlines()
@@ -559,6 +784,82 @@ class Data:
 
             valiable_user_data.close()
 
+    @staticmethod
+    def discretization_12(interval_list):
+        datadir = "G:/新建文件夹/Geolife Trajectories 1.3/Data/"
+        out_path = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_12_95_30/"
+        feature_num = 12
+        valiable_user_data = open("./data/have_label_user.txt", "r")
+        user_list = valiable_user_data.readlines()
+        # col_name = ["speed_sec", "acc_sec", "std_speed", "avg_speed", "mean_acc", "max_or_min", "label"]
+        # 所有数据
+
+        # status = open(datadir+"status.csv","w+")
+        for interval in interval_list:
+            print("处理%d" % (interval))
+            users_df = pd.DataFrame()
+            for user in user_list:
+                user_id = user[0:3]
+                # user_features_max_min_name = datadir + user_id + "/user_features_max_min.csv"
+                # user_features_max_min_file = open(user_features_max_min_name,"r")
+                # # 原始数据
+                # raw_data_df = pd.DataFrame(pd.read_csv(user_features_max_min_file))
+                # max_min_df = max_min_df.append(raw_data_df)
+                #
+                # user_features_max_min_file.close()
+                user_feature_file_name = datadir + user_id + "/user_features_interval_" + str(interval)+ ".csv"
+                user_feature_file = open(user_feature_file_name, "r")
+                raw_data_df = pd.DataFrame(pd.read_csv(user_feature_file))
+                users_df = users_df.append(raw_data_df)
+
+            users_df.reset_index(drop=True)
+            # print("离散化")
+            #
+            # file = open(out_path+"status"+str(interval)+".txt",mode="w+")
+            # file.write("interval_%d \n"%(interval))
+            # for i in [0,0.95,0.96,0.97,0.98,0.99]:
+            #     file.write("%s %f  %f\n" % (param.SPEED_SEC,i,users_df[param.SPEED_SEC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.AVG_SPEED,i,users_df[param.AVG_SPEED].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.STD_SPEED,i,users_df[param.STD_SPEED].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.ACC_SEC,i,users_df[param.ACC_SEC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.MEAN_ACC,i,users_df[param.MEAN_ACC].quantile(i)))
+            #     file.write("%s %f  %f\n" % (param.STD_ACC,i,users_df[param.STD_ACC].quantile(i)))
+            #     file.write("\n")
+            #
+            # file.close()
+            speed_sec = pd.DataFrame(Data.equal_width(users_df["speed_sec"], WIDTH))
+            acc_sec = pd.DataFrame(Data.equal_width(users_df["acc_sec"], WIDTH))
+            avg_speed = pd.DataFrame(Data.equal_width(users_df["avg_speed"], WIDTH))
+            std_speed = pd.DataFrame(Data.equal_width(users_df["std_speed"], WIDTH))
+            mean_acc = pd.DataFrame(Data.equal_width(users_df["mean_acc"], WIDTH))
+            std_acc = pd.DataFrame(Data.equal_width(users_df["std_acc"], WIDTH))
+            head = pd.DataFrame(Data.equal_width(users_df["head"], WIDTH))
+            head_mean = pd.DataFrame(Data.equal_width(users_df["head_mean"], WIDTH))
+            std_head = pd.DataFrame(Data.equal_width(users_df["std_head"], WIDTH))
+            max_speed = pd.DataFrame(Data.equal_width(users_df["max_speed"], WIDTH))
+            max_acc = pd.DataFrame(Data.equal_width(users_df["max_acc"], WIDTH))
+            max_head = pd.DataFrame(Data.equal_width(users_df["max_head"], WIDTH))
+
+            print("连接矩阵")
+            # features_en = np.concatenate((speed_sec,avg_speed,std_speed,acc_sec,mean_acc,std_acc),axis=1)
+            result_df = pd.concat(
+                [speed_sec, avg_speed, std_speed, acc_sec, mean_acc, std_acc, head, head_mean, std_head,max_speed,max_acc,max_head], axis=1)
+
+            # result_df = pd.DataFrame(features_en)
+            result_df["label"] = users_df["label"].values
+            result_df["seg_label"] = users_df["seg_label"].values
+            # col_name = result_df.columns.tolist()
+            # col_name.insert(col_name.index(0),"user_id")
+            # result_df.reindex(columns=col_name)
+            result_df["user_id"] = users_df["user_id"].values
+            # result_df    columns =[userid(1),speed_sec(width),avg_speed(width),std_speed(width),acc_sec(width),mean_acc(width),label(1),seg_label(1)]
+
+            # result_file = open(datadir+"user_features_data_en.csv",mode="w+")
+            result_df.to_csv(out_path + "user_features_data_en_1_interval_" + str(interval) + ".csv", mode="w+",
+                             header=True, index=False)
+
+            valiable_user_data.close()
+
     #盒状过滤
     @staticmethod
     def filter_box_quantile(x,k):
@@ -570,10 +871,10 @@ class Data:
                 or x.name == param.STD_SPEED or x.name == param.MEAN_ACC  or x.name == param.STD_ACC\
                 or x.name == param.HEAD_MEAN or x.name == param.STD_HEAD:
             min = x.quantile(0)
-            max = x.quantile(0.99)
+            max = x.quantile(FENWEI_MAX)
         elif x.name == param.ACC_SEC or x.name == param.HEAD:
             min = x.quantile(0.01)
-            max = x.quantile(0.99)
+            max = x.quantile(FENWEI_MAX)
         n = len(x.index)
         y = np.array(x.values)
 
@@ -1125,9 +1426,9 @@ class Data:
 
     #制作规定长度的tfrecord
     @staticmethod
-    def make_tfrecord_seq_shuffle(interval_list,exp_seq_len):
-        data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_head/"
-        out_path = "G:/all_data/tfrecords/"
+    def make_tfrecord_seq_shuffle(interval_list,exp_seq_len,dirname):
+        data_dir = "G:/新建文件夹/Geolife Trajectories 1.3/gps_en_discrezation/features_12_95_30/"
+        out_path = "G:/all_data/"+dirname
         for interval in interval_list:
             print("处理" + str(interval))
             # train_writer = tf.python_io.TFRecordWriter("G:/all_data/tfrecords/interval_"+str(interval)+"_train.tfrecords")
@@ -1169,6 +1470,10 @@ class Data:
                 head = np.array(seg_group.iloc[:, 6* WIDTH : 7 * WIDTH],dtype=np.int64)
                 head_mean = np.array(seg_group.iloc[:, 7* WIDTH : 8 * WIDTH],dtype=np.int64)
                 std_head = np.array(seg_group.iloc[:, 8* WIDTH : 9 * WIDTH],dtype=np.int64)
+                max_speed = np.array(seg_group.iloc[:, 9* WIDTH : 10 * WIDTH],dtype=np.int64)
+                max_acc = np.array(seg_group.iloc[:, 10* WIDTH : 11 * WIDTH],dtype=np.int64)
+                max_head = np.array(seg_group.iloc[:, 11* WIDTH : 12 * WIDTH],dtype=np.int64)
+
 
                 speed_sec_pad,speed_sec_early = Data.pad_seqs(speed_sec,exp_seq_len)
                 avg_speed_pad,avg_speed_early = Data.pad_seqs(avg_speed,exp_seq_len)
@@ -1179,6 +1484,9 @@ class Data:
                 head_pad,head_early = Data.pad_seqs(head,exp_seq_len)
                 head_mean_pad,head_mean_early = Data.pad_seqs(head_mean,exp_seq_len)
                 std_head_pad,std_head_early = Data.pad_seqs(std_head,exp_seq_len)
+                max_speed_pad,max_speed_early = Data.pad_seqs(max_speed,exp_seq_len)
+                max_acc_pad,max_acc_early = Data.pad_seqs(max_acc,exp_seq_len)
+                max_head_pad,max_head_early = Data.pad_seqs(max_head,exp_seq_len)
 
                 label = np.zeros(speed_sec_early.shape,np.int64)
                 #print(int(seg_group.iloc[0,-3]))
@@ -1198,6 +1506,9 @@ class Data:
                         param.HEAD: Data._bytes_feature(head_pad[start:end].tobytes()),
                         param.HEAD_MEAN: Data._bytes_feature(head_mean_pad[start:end].tobytes()),
                         param.STD_HEAD: Data._bytes_feature(std_head_pad[start:end].tobytes()),
+                        param.MAX_SPEED: Data._bytes_feature(max_speed_pad[start:end].tobytes()),
+                        param.MAX_ACC: Data._bytes_feature(max_acc_pad[start:end].tobytes()),
+                        param.MAX_HEAD: Data._bytes_feature(max_head_pad[start:end].tobytes()),
                         param.EARLY: Data._int64_feature(std_head_early[i]),
                         param.LABEL: Data._int64_feature(label[i])
                     }
@@ -1323,4 +1634,8 @@ if __name__ == "__main__":
     #Data.create_all_data_npy(4,100)
     #Data.concat_data(4,100)
     #Data.make_tfrecord([5])
-    Data.make_tfrecord_seq_shuffle([1,2,3,4,5],50)
+    #Data.make_tfrecord_seq_shuffle([1,2,3,4,5],50,"tfrecords_95_15/")
+    #Data.features_status([5])
+    #Data.caculate_feature_12([1,2,3,4,5])
+    #Data.discretization_12([1,2,3,4])
+    Data.make_tfrecord_seq_shuffle([4], 50, "tfrecords_95_30_12/")

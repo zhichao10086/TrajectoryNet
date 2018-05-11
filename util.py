@@ -122,8 +122,8 @@ def get_rnn_type(rnn_type):
 
 
 def init_environment(net_type,rnn_type):
-    log_path = "./logdir/shiyan/"
-    data_path = "./data/tfrecord9_data/"
+    log_path = "./logdir/shiyanxiuzheng/"
+    data_path = "./data/tfrecord12/"
     if net_type == NetType.DNN:
         data_dir = DirName.DNN.value
         log_dir = DirName.DNN.value

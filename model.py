@@ -21,7 +21,7 @@ class Model(object):
         self.init_config(config)
 
         self.current_step = tf.Variable(0,trainable=False)
-        self._learning_rate  = tf.train.exponential_decay(self.learning_rate,self.current_step,decay_steps=600,decay_rate=0.98,staircase=True)
+        self._learning_rate  = tf.train.exponential_decay(self.learning_rate,self.current_step,decay_steps=10,decay_rate=0.98,staircase=True)
 
 
         #self.current_step = tf.Variable(0)
@@ -104,6 +104,9 @@ class Model(object):
         with tf.name_scope("rnn_outputs"):
             self.get_rnn_outputs(cell)
 
+        #w,b=self.init_mutil_dnn_weights(self.hidden_size*2,self.hidden_size*2,self.hidden_size*2,self.num_layers -1)
+        #self._output = self.mlp(self._output,w,b,0.5)
+
             # softmax层的权重
         with tf.name_scope("softmax_layer") as scope:
             self.get_softmax_layer_output()
@@ -178,14 +181,14 @@ class Model(object):
             self._confusion_matrix = tf.confusion_matrix(tf.reshape(self._targets,[self.batch_size*self.exp_seq_len]), self._digit_predictions,self.num_classes)
 
         with tf.name_scope("seq2seq-loss-by-example") as scpoe:
-            self._loss = tf_ct.seq2seq.sequence_loss(tf.reshape(self._predictions,[self.batch_size,self.exp_seq_len,self.num_classes])
-                                        ,self.targets,
-                                        self._weight_sequence_loss)
+            self._loss = tf_ct.legacy_seq2seq.sequence_loss_by_example([self._predictions],
+                                        [tf.reshape(self.targets,[self.batch_size*self.exp_seq_len])],
+                                        [tf.reshape(self._weight_sequence_loss,[self.batch_size*self.exp_seq_len])])
             # self._loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
             #     [self._predictions],
             #     [self._targets],
             #     [tf.ones([tf.cast(self.getTensorShape(self._targets)[0],tf.int32)])])
-
+            self._cross_entropy = tf.reduce_sum(self._loss)
             self._cost = tf.reduce_mean(self._loss)
             self.add_l2_regulation()
             # 计算l2cost
@@ -279,7 +282,11 @@ class Model(object):
 
             self._onehot_labels = tf.one_hot(self._targets, depth=self.num_classes)
 
-            self._cost = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._onehot_labels,logits=self._predictions))
+            self._loss = tf.nn.softmax_cross_entropy_with_logits_v2(labels=self._onehot_labels,logits=self._predictions)
+
+            self._cross_entropy = tf.reduce_sum(self._loss)
+
+            self._cost = tf.reduce_mean(self._loss)
 
             self.add_l2_regulation()
 

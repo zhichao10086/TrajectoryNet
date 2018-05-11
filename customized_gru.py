@@ -34,6 +34,7 @@ class CustomizedGRU(RNNCell):
                 r,u = array_ops.split(gate,num_or_size_splits=2,axis=1)
 
                 r,u = sigmoid(r),sigmoid(u)
+                #r,u = tanh(r),tanh(u)
 
             with vs.variable_scope("candidate"):
 
